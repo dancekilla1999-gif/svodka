@@ -2,20 +2,29 @@
 
 Отчёт по смене из iiko в Telegram
 
-Кабинет (приложение): https://svodka-egor12.vercel.app/app/
+Кабинет: https://svodka-egor12.vercel.app/app/
 
-Маркетинговая страница: https://svodka-egor12.vercel.app
+Лендинг: https://svodka-egor12.vercel.app
 
 Часть пакета **Трио** (https://trio-resto.vercel.app)
+
+## Статус восстановления (31.10.2026)
+
+- `app/index.html` — восстановлен с production Vercel
+- Полный исходный код (все JS/CSS/fonts/media) лежит в архиве `svodka-full.zip`
+- Чтобы получить полный рабочий проект — распакуй zip в корень репозитория и сделай commit
 
 ## Структура
 
 ```
-index.html      — лендинг сервиса
-app/            — кабинет (SPA на hash-роутинге)
+index.html      — лендинг
+app/            — кабинет (SPA)
   index.html
-  *.js, *.css
+  core.js, app.js, team.js, guide.js, trio-bill.js
+  app.css, trio-skin.css
 fonts/
+css/
+media/
 ```
 
 ## Локальный запуск
@@ -26,4 +35,3 @@ npx serve .
 ```
 
 Backend: Supabase (`qozyihhlocvgpkchyqsp.supabase.co`).
-Оплата: API на trio-resto.
