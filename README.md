@@ -8,12 +8,6 @@
 
 Часть пакета **Трио** (https://trio-resto.vercel.app)
 
-## Статус восстановления (31.10.2026)
-
-- `app/index.html` — восстановлен с production Vercel
-- Полный исходный код (все JS/CSS/fonts/media) лежит в архиве `svodka-full.zip`
-- Чтобы получить полный рабочий проект — распакуй zip в корень репозитория и сделай commit
-
 ## Структура
 
 ```
@@ -35,3 +29,9 @@ npx serve .
 ```
 
 Backend: Supabase (`qozyihhlocvgpkchyqsp.supabase.co`).
+
+## Статус (04.11.2026)
+
+Весь статический код (HTML, CSS, JS, шрифты, медиа) скопирован с production: https://svodka-egor12.vercel.app — файлы идентичны тому, что сейчас отдаёт сайт.
+
+**Чего нет в репозитории:** серверных функций Vercel (api/agents, api/iiko). Их исходники не отдаются публично; их можно забрать только из деплоя через Vercel (Deployment → Source) и положить в `api/`.
