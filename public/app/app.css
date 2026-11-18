@@ -1,10 +1,16 @@
 /* «Сводка» — отчёт собственнику по смене из iiko. Палитра: ночная смена — глубокий индиго и янтарь кассовой ленты. */
 :root {
+  --bg: #100E1C; --surface: #1A1730; --ink: #ECEAF5; --muted: #ABA6C2; --line: #2E2A4A;
+  --accent: #F2B33D; --accent-strong: #FFC861; --green: #2B2257; --on-green: #FFFFFF;
+  --good: #4CC48A; --bad: #F2857A; --warn-bg: #2E2614; --warn-line: #5E4C1F; --bad-bg: #351B1A; --good-bg: #12302A; --amber: #F2B33D;
+  --display: "Manrope", "Segoe UI", system-ui, sans-serif;
+  --body: "Golos Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
   --bg: #F5F4F8; --surface: #FFFFFF; --ink: #1B1733; --muted: #5D5873; --line: #DCD8E6;
   --accent: #B26B00; --accent-strong: #8F5600; --green: #2B2257; --on-green: #FFFFFF;
   --good: #1B7A47; --bad: #B42318; --warn-bg: #FFF4DC; --warn-line: #EACB86; --bad-bg: #FDECEA; --good-bg: #E7F5EE; --amber: #F2A900;
-  --display: "Manrope", "Segoe UI", system-ui, sans-serif;
-  --body: "Golos Text", "Segoe UI", system-ui, -apple-system, sans-serif;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {

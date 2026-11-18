@@ -5,10 +5,11 @@ const root = document.documentElement;
 const body = document.body;
 const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const mobile = window.matchMedia('(max-width: 800px)').matches;
+const coarse = window.matchMedia('(pointer: coarse)').matches;
 
 // ---------- плавный скролл ----------
 let lenis = null;
-if (!reduce) {
+if (!reduce && !mobile && !coarse) {
   lenis = new Lenis({ lerp: 0.085, wheelMultiplier: 0.9, smoothWheel: true });
   const raf = (t) => { lenis.raf(t); requestAnimationFrame(raf); };
   requestAnimationFrame(raf);
@@ -96,7 +97,7 @@ if (J) {
 
   let video = null, ready = false, target = 0, shown = -1, seeking = false, seekAt = 0;
   const src = (mobile && film.dataset.srcM) || film.dataset.src;
-  if (src && !reduce) {
+  if (src && !reduce && !mobile) {
     const attach = (url) => {
       video = document.createElement('video');
       video.muted = true; video.playsInline = true; video.setAttribute('playsinline', ''); video.setAttribute('muted', '');
@@ -110,9 +111,7 @@ if (J) {
       window.addEventListener('touchstart', unlock, { once: true, passive: true });
       video.src = url; video.load();
     };
-    fetch(src).then((r) => { if (!r.ok) throw new Error(r.status); return r.blob(); })
-      .then((b) => attach(URL.createObjectURL(b)))
-      .catch(() => attach(src));
+    attach(src);
   }
   const tick = () => {
     if (ready && !seeking) {
