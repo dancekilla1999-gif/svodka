@@ -7,6 +7,8 @@ const { demoReport, demoPurchases } = require('./demo');
 const { collectPurchases } = require('./purchases');
 const { reportText, tgSend } = require('./text');
 const A = require('./agents');
+const K = require('./keeper');
+const ai = require('./ai');
 
 // доступ к базе от имени владельца: по токену (кабинет) или по секрету крона (сервер)
 function dbFor(who) {
@@ -24,6 +26,11 @@ function save(db, res) { return res ? db.op('insight_save', { agent: res.agent, 
 // День: conn = {mode, base_url, login, pass_enc, selected, departments, prefs}
 async function runDay(db, conn, day, opts = {}) {
   const prefs = A.prefsOf(conn.prefs);
+  let watch = null, promo = null;
+  try { watch = await K.watch(); } catch (e) { console.error('keeper', e.message); }
+  const weeklyNow = opts.week === true || (opts.week !== false && A.dow(day) === 0 && !opts.partial);
+  if (weeklyNow) { try { promo = await K.promo('svodka', ai); } catch (e) { console.error('promo', e.message); } }
+  await Promise.all([save(db, watch), promo ? save(db, promo) : null]);
   let report, purch = null, purchErr = '';
   if (conn.mode === 'demo') {
     report = demoReport(day, { partial: opts.partial });
@@ -69,9 +76,10 @@ async function runDay(db, conn, day, opts = {}) {
   if (opts.chatId && opts.send !== false) {
     const link = opts.base ? `${opts.base}/app/#/r/${saved.id}` : null;
     sent = await tgSend(opts.chatId, reportText(report, link) + '\n' + A.tgDailyExtra(sh, pr, tip)).catch(() => false);
-    if (week && prefs.weekly_tg) await tgSend(opts.chatId, A.tgWeekly(week.director, week.finance, opts.base ? `${opts.base}/app/#/agents` : null)).catch(() => false);
+    if (week && prefs.weekly_tg) await tgSend(opts.chatId, A.tgWeekly(week.director, week.finance, opts.base ? `${opts.base}/app/#/agents` : null) + (promo ? '\n\n<b>Продвижение:</b> черновик поста лежит в кабинете. Сам агент его не публикует.' : '')).catch(() => false);
+    if (watch && watch.level === 'bad') await tgSend(opts.chatId, '<b>Смотритель</b>\n' + watch.items.filter((i) => i.level === 'bad').map((i) => '🔴 ' + i.text).join('\n')).catch(() => false);
   }
-  return { id: saved.id, sent, week: !!week, shift: sh, purchases: pr, tip };
+  return { id: saved.id, sent, week: !!week, shift: sh, purchases: pr, tip, watch, promo };
 }
 
 // Неделя, в которую входит day (пн–вс): финансы, персонал, меню и план управляющего — по сохранённым отчётам

@@ -152,13 +152,20 @@ void main(){
 }`;
 
 export function createField(canvas, opts = {}) {
-  const small = Math.min(window.innerWidth, window.innerHeight) < 700;
-  const N = opts.count || (small ? 7000 : 15000);
+  const small = Math.min(window.innerWidth, window.innerHeight) < 800;
+  const saveData = navigator.connection && navigator.connection.saveData;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const weak = (navigator.hardwareConcurrency || 8) <= 4;
+  if (reduceMotion || saveData || (small && weak)) {
+    document.documentElement.classList.add('no-webgl');
+    return null;
+  }
+  const N = opts.count || (small ? 1400 : 3800);
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, powerPreference: 'high-performance' });
   } catch (e) { document.documentElement.classList.add('no-webgl'); return null; }
-  const PR = Math.min(window.devicePixelRatio || 1, small ? 1.5 : 1.75);
+  const PR = Math.min(window.devicePixelRatio || 1, small ? 1 : 1.25);
   renderer.setPixelRatio(PR);
   renderer.setClearColor(0x000000, 0);
   const scene = new THREE.Scene();
