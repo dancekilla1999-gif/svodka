@@ -10,7 +10,21 @@ const AGENTS = {
   menu: { name: 'Меню', role: 'Блюда по продажам и марже: звёзды, «рабочие лошадки», что продвигать и что убрать' },
   director: { name: 'Управляющий', role: 'Собирает выводы всех агентов в план действий и отвечает на вопросы' }
 };
-const CAT = { rent: 'Аренда', staff: 'Зарплаты (ФОТ)', utilities: 'Коммунальные', marketing: 'Маркетинг', taxes: 'Налоги', bank: 'Эквайринг и банк', other: 'Прочее' };
+const CAT = {
+    rent: "Аренда",
+    staff: "ФОТ",
+    utilities: "Коммунальные",
+    kitchen: "Закупка кухня",
+    bar: "Закупка бар",
+    household: "Закупка Хозтовары",
+    equipment: "Закупка Инвентарь, техника, канцелярия",
+    other_purchases: "Закупка прочие",
+    maintenance: "Содержание помещения, ремонт",
+    marketing: "Медиа, реклама",
+    other: "Прочие расходы",
+    taxes: "Налоги",
+    bank: "Эквайринг, комиссии р/с"
+  };
 const DEF = { food_cost_target: 0.32, labor_target: 0.28, price_alert: 0.05, weekly_tg: true, daily_tips: true, purchases: true };
 function prefsOf(p) { return Object.assign({}, DEF, p || {}); }
 
@@ -193,12 +207,14 @@ function staff(week, ctx) {
     const o = r.data || {};
     (o.waiters || []).forEach((w) => {
       if (!w.revenue && !w.orders) return;
-      const x = W[w.name] || (W[w.name] = { name: w.name, shifts: 0, revenue: 0, orders: 0, guests: 0, discount: 0, deleted: 0, deleted_no_wo: 0 });
+      const x = W[w.name] || (W[w.name] = { name: w.name, shifts: 0, revenue: 0, orders: 0, guests: 0, discount: 0, discount_base: 0, deleted: 0, deleted_no_wo: 0 });
       x.shifts++; x.revenue += w.revenue || 0; x.orders += w.orders || 0; x.guests += w.guests || 0; x.discount += w.discount || 0;
-      teamRev += w.revenue || 0; teamOrd += w.orders || 0; teamDisc += w.discount || 0; teamGross += (w.revenue || 0) + (w.discount || 0);
+      const discountBase = w.discount == null ? 0 : (w.discount_base ?? ((w.revenue || 0) + (w.discount || 0)));
+      x.discount_base += discountBase;
+      teamRev += w.revenue || 0; teamOrd += w.orders || 0; teamDisc += w.discount || 0; teamGross += discountBase;
     });
     (o.deletions || []).forEach((d) => {
-      const x = W[d.waiter] || (W[d.waiter] = { name: d.waiter, shifts: 0, revenue: 0, orders: 0, guests: 0, discount: 0, deleted: 0, deleted_no_wo: 0 });
+      const x = W[d.waiter] || (W[d.waiter] = { name: d.waiter, shifts: 0, revenue: 0, orders: 0, guests: 0, discount: 0, discount_base: 0, deleted: 0, deleted_no_wo: 0 });
       x.deleted += d.sum || 0; if (/WITHOUT/i.test(d.type)) x.deleted_no_wo += d.sum || 0;
     });
     (o.hours || []).forEach((h) => { const y = hours[h.hour] || (hours[h.hour] = { hour: h.hour, revenue: 0, orders: 0, days: 0 }); y.revenue += h.revenue || 0; y.orders += h.orders || 0; y.days++; });
@@ -207,7 +223,7 @@ function staff(week, ctx) {
   const list = Object.values(W).filter((x) => x.name && x.name !== '—').map((x) => Object.assign(x, {
     revenue: r2(x.revenue), discount: r2(x.discount), deleted: r2(x.deleted), deleted_no_wo: r2(x.deleted_no_wo),
     avg_check: x.orders ? r2(x.revenue / x.orders) : 0, per_shift: x.shifts ? r2(x.revenue / x.shifts) : 0,
-    discount_share: x.revenue + x.discount ? r2(x.discount / (x.revenue + x.discount)) : 0
+    discount_share: x.discount_base > 0 ? r2(x.discount / x.discount_base) : 0
   })).sort((a, b) => b.per_shift - a.per_shift);
   const praise = [], talk = [];
   list.forEach((x) => {

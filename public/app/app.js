@@ -153,11 +153,36 @@
       h("thead", null, h("tr", null, head.map(function (x, i) { return h("th", { class: numCols.indexOf(i) >= 0 ? "num" : null, text: x }); }))),
       h("tbody", null, rows.map(function (r) { return h("tr", null, r.map(function (x, i) { return h("td", { class: numCols.indexOf(i) >= 0 ? "num" : null }, x); })); }))));
   }
+  function revenueTable(items) {
+    var payments = ["cash", "card", "bank", "unknown"];
+    function row(label, floor, entity) {
+      return [label].concat(payments.map(function (payment) {
+        return money(items.reduce(function (sum, x) {
+          return sum + ((!floor || x.floor === floor) && (!entity || x.entity === entity) && x.payment === payment ? x.sum : 0);
+        }, 0));
+      }));
+    }
+    var rows = [];
+    ["1", "2"].forEach(function (floor) {
+      rows.push(row(floor + " этаж · ООО", floor, "ООО"), row(floor + " этаж · ИП", floor, "ИП"));
+      if (items.some(function (x) { return x.floor === floor && x.entity === "unknown" && x.sum; })) {
+        rows.push(row(floor + " этаж · Юрлицо не указано", floor, "unknown"));
+      }
+      rows.push(row("ИТОГО " + floor + " этаж", floor));
+    });
+    var total = ["ВСЕГО 1 и 2 этаж"].concat(payments.map(function (payment) {
+      return money(items.reduce(function (sum, x) { return sum + (x.floor !== "unknown" && x.payment === payment ? x.sum : 0); }, 0));
+    }));
+    rows.push(total);
+    if (items.some(function (x) { return x.floor === "unknown" && x.sum; })) rows.push(row("Этаж не указан", "unknown"));
+    return table(["Этаж / юрлицо", "Наличные", "Карты", "Расчётный счёт", "Не распределено"], rows, [1, 2, 3, 4]);
+  }
   function report(r) {
     var o = r.data || {}, t = o.totals || {}, p = o.prev || {};
     var maxPay = Math.max.apply(null, (o.pay || []).map(function (x) { return x.sum; }).concat([1]));
     var maxH = Math.max.apply(null, (o.hours || []).map(function (x) { return x.revenue; }).concat([1]));
-    var discShare = t.gross ? t.discount / t.gross : 0;
+    var discountBase = t.discount_base == null ? t.gross : t.discount_base;
+    var discShare = discountBase > 0 ? t.discount / discountBase : 0;
     return page(
       h("div", { class: "page-head" },
         h("div", null, h("span", { class: "label", text: (o.demo ? "Демо · " : "") + (o.depts || []).join(", ") }), h("h1", { text: dayLong(r.day) }),
@@ -168,7 +193,7 @@
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Чеков" }), h("span", { class: "k-val", text: int(t.orders) }), h("span", { class: "k-sub" }, delta(t.orders, p.orders), p.orders ? " · было " + int(p.orders) : "")),
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Средний чек" }), h("span", { class: "k-val", text: money(t.avg_check) }), h("span", { class: "k-sub" }, delta(t.avg_check, p.avg_check), p.avg_check ? " · было " + money(p.avg_check) : "")),
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Гостей" }), h("span", { class: "k-val", text: int(t.guests) }), h("span", { class: "k-sub", text: "на гостя " + money(t.avg_guest) })),
-        h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Скидки" }), h("span", { class: "k-val", text: money(t.discount) }), h("span", { class: "k-sub", text: pct(discShare) + " от суммы чеков" })),
+        h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Скидки" }), h("span", { class: "k-val", text: t.discount == null ? "—" : money(t.discount) }), h("span", { class: "k-sub", text: t.discount == null ? "Данные iiko недоступны" : pct(discShare) + " от суммы чеков" })),
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Удаления" }), h("span", { class: "k-val", text: money(t.deleted_sum) }), h("span", { class: "k-sub", text: int(t.deleted_qty) + " позиций" })),
         t.cost != null ? h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Себестоимость" }), h("span", { class: "k-val", text: money(t.cost) }), h("span", { class: "k-sub", text: "фудкост " + pct(t.revenue ? t.cost / t.revenue : 0) })) : null,
         o.profit && o.profit.profit != null && o.profit.has_expenses ? h("div", { class: "kpi main" }, h("span", { class: "k-label", text: "Прибыль смены" }), h("span", { class: "k-val", text: money(o.profit.profit) }), h("span", { class: "k-sub", text: "после доли расходов " + money(o.profit.expenses) }))
@@ -188,12 +213,21 @@
         table(["Подразделение", "Выручка", "Чеков", "Гостей", "Средний чек"], o.by_dept.map(function (x) { return [x.name, money(x.revenue), int(x.orders), int(x.guests), money(x.avg_check)]; }), [1, 2, 3, 4])) : null,
       (o.waiters || []).length ? h("section", { class: "form" }, h("h2", { text: "Официанты" }),
         table(["Сотрудник", "Выручка", "Чеков", "Средний чек", "Скидки"], o.waiters.map(function (w) {
-          return [w.name, money(w.revenue), int(w.orders), money(w.avg_check), h("span", { class: w.discount_share >= Math.max(0.1, discShare * 2) && w.discount >= 1000 ? "down" : null, text: money(w.discount) + " · " + pct(w.discount_share) })];
+          return [w.name, money(w.revenue), int(w.orders), money(w.avg_check), h("span", { class: w.discount_share >= Math.max(0.1, discShare * 2) && w.discount >= 1000 ? "down" : null, text: w.discount == null ? "—" : money(w.discount) + " · " + pct(w.discount_share) })];
         }), [1, 2, 3, 4])) : null,
       (o.dishes || []).length ? h("section", { class: "form" }, h("h2", { text: "Топ-10 позиций по выручке" }),
         table(["Позиция", "Кол-во", "Выручка"], o.dishes.map(function (x) { return [x.name, int(x.qty), money(x.sum)]; }), [1, 2])) : null,
       (o.deletions || []).length ? h("section", { class: "form" }, h("h2", { text: "Удаления" }),
         table(["Позиция", "Сотрудник", "Тип", "Кол-во", "Сумма"], o.deletions.slice(0, 30).map(function (x) { return [x.dish, x.waiter, DEL_TYPES[x.type] || x.type, int(x.qty), money(x.sum)]; }), [3, 4])) : null,
+      o.revenue_breakdown ? h("section", { class: "form" }, h("h2", { text: "Выручка по этажам и юрлицам" }), revenueTable(o.revenue_breakdown)) : null,
+      o.promo ? h("section", { class: "form" }, h("h2", { text: "Промо без оплаты" }),
+        table(["Этаж", "Сумма до скидок"], [
+          ["Промо без оплаты 1 этаж", money(o.promo["1"])],
+          ["Промо без оплаты 2 этаж", money(o.promo["2"])],
+          ["ВСЕГО промо без оплаты 1 и 2 этаж", money(o.promo["1"] + o.promo["2"])]
+        ].concat(o.promo.unknown ? [["Этаж не указан", money(o.promo.unknown)]] : []), [1])) : null,
+      (o.non_fiscal || []).length ? h("section", { class: "form" }, h("h2", { text: "Нефискальные чеки" }),
+        table(["Тип", "Сумма до скидок"], o.non_fiscal.map(function (x) { return [x.type, money(x.sum)]; }), [1])) : null,
       (o.discounts || []).length ? h("section", { class: "form" }, h("h2", { text: "Скидки по типам" }),
         table(["Скидка", "Сотрудник", "Сумма"], o.discounts.map(function (x) { return [x.type, x.waiter, money(x.sum)]; }), [2])) : null,
       h("div", { class: "card row no-print", style: "justify-content:space-between" }, h("div", null, h("b", { text: "Что говорят агенты" }), h("p", { class: "small muted", text: "Закупки и цены, прибыль, персонал и меню — в разделе «Агенты». Там же можно спросить управляющего." })), h("a", { class: "btn small primary", href: "#/agents", text: "Открыть агентов" })),

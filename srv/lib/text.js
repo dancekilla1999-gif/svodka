@@ -12,10 +12,41 @@ function reportText(o, link) {
   L.push(`💰 Выручка: <b>${money(t.revenue)}</b>${delta(t.revenue, p.revenue)}`);
   L.push(`🧾 Чеков: ${t.orders} · средний ${money(t.avg_check)}`);
   L.push(`👥 Гостей: ${t.guests} · на гостя ${money(t.avg_guest)}`);
-  if (t.discount) L.push(`🏷 Скидки: ${money(t.discount)}`);
+  if (t.discount) {
+    const base = t.discount_base ?? t.gross;
+    L.push(`🏷 Скидки: ${money(t.discount)}${base > 0 ? ` · ${Math.round(t.discount / base * 100)}%` : ''}`);
+  }
+  if (o.non_fiscal?.length) L.push(`🧾 Нефискальные чеки: ${money(o.non_fiscal.reduce((sum, x) => sum + x.sum, 0))}`);
+  if (o.promo) {
+    const first = o.promo['1'], second = o.promo['2'];
+    L.push(`🎟 Промо без оплаты: 1 этаж ${money(first)} · 2 этаж ${money(second)} · всего ${money(first + second)}`);
+    if (o.promo.unknown) L.push(`Этаж не указан: ${money(o.promo.unknown)}`);
+  }
   if (t.deleted_sum) L.push(`🗑 Удаления: ${money(t.deleted_sum)}`);
   if (o.pay && o.pay.length) L.push('💳 ' + o.pay.slice(0, 3).map((x) => `${esc(x.name)} ${Math.round(x.share * 100)}%`).join(' · '));
   if (o.waiters && o.waiters.length) L.push(`⭐ Лучший: ${esc(o.waiters[0].name)} — ${money(o.waiters[0].revenue)}`);
+  if (o.revenue_breakdown) {
+    const items = o.revenue_breakdown;
+    const line = (name, rows) => {
+      const amounts = ['cash', 'card', 'bank'].map((payment) =>
+        money(rows.reduce((sum, x) => sum + (x.payment === payment ? x.sum : 0), 0)));
+      const unknown = rows.reduce((sum, x) => sum + (x.payment === 'unknown' ? x.sum : 0), 0);
+      return `${name}: ${amounts.join(' / ')}${unknown ? ` · не распределено ${money(unknown)}` : ''}`;
+    };
+    L.push('', '<b>Выручка по этажам</b>', 'Наличные / карты / расчётный счёт');
+    for (const floor of ['1', '2']) {
+      const rows = items.filter((x) => x.floor === floor);
+      for (const entity of ['ООО', 'ИП', 'unknown']) {
+        const byEntity = rows.filter((x) => x.entity === entity);
+        if (entity === 'unknown' && !byEntity.some((x) => x.sum)) continue;
+        L.push(line(`${floor} этаж · ${entity === 'unknown' ? 'Юрлицо не указано' : entity}`, byEntity));
+      }
+      L.push(line(`ИТОГО ${floor} этаж`, rows));
+    }
+    L.push(line('ВСЕГО 1 и 2 этаж', items.filter((x) => x.floor !== 'unknown')));
+    const unknownFloor = items.filter((x) => x.floor === 'unknown');
+    if (unknownFloor.some((x) => x.sum)) L.push(line('Этаж не указан', unknownFloor));
+  }
   if (o.flags && o.flags.length) {
     L.push('');
     L.push('<b>На что посмотреть:</b>');

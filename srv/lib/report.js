@@ -2,6 +2,8 @@
 // Названия полей у разных версий iiko немного отличаются, поэтому сначала читаем список полей сервера
 // и берём первое подходящее из кандидатов. Нет поля — раздел отчёта пропускается, а не падает весь отчёт.
 
+const { classification, floorOf, entityOf, paymentOf } = require('./sales-breakdown');
+
 const CANDIDATES = {
   rev: ['DishDiscountSumInt', 'DishDiscountSum'],
   gross: ['DishSumInt', 'DishSum'],
@@ -17,7 +19,11 @@ const CANDIDATES = {
   deptId: ['Department.Id'],
   dept: ['Department', 'Department.Name', 'RestaurantSection'],
   del: ['DeletedWithWriteoff', 'OrderDeleted'],
-  discType: ['OrderDiscount.Type', 'Discount.Type', 'OrderDiscountType']
+  discType: ['OrderDiscount.Type', 'Discount.Type', 'OrderDiscountType'],
+  fiscal: ['PayTypes.IsPrintCheque'],
+  floor: ['RestaurantSection'],
+  entity: ['JurName'],
+  payCombo: ['PayTypes.Combo']
 };
 
 function pick(cols, list) { for (const f of list) if (cols[f]) return f; return null; }
@@ -57,7 +63,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
   const from = day, to = isoAdd(day, 1);
   const flt = baseFilters(f, from, to, deptIds, deptNames, true);
   const aggMain = [f.rev, f.gross, f.orders, f.guests, f.cost];
-  const missing = Object.keys(f).filter((k) => !f[k] && ['deptId', 'disc', 'discType', 'cost'].indexOf(k) < 0);
+  const missing = Object.keys(f).filter((k) => !f[k] && ['deptId', 'disc', 'discType', 'cost', 'fiscal', 'floor', 'entity', 'payCombo'].indexOf(k) < 0);
   const out = { demo: false, day, depts: deptNames, generated_at: new Date().toISOString(), fields_missing: missing };
   // OLAP-запросы идут параллельно (не больше 4 одновременно): последовательно медленный iiko не укладывался в лимит функции
   let active = 0; const waiting = [];
@@ -67,6 +73,9 @@ async function buildReport(iiko, day, sel, opts = {}) {
   const pd = isoAdd(day, -7);
   const dflt = f.del ? baseFilters(f, from, to, deptIds, deptNames, false) : null;
   if (dflt) dflt[f.del] = { filterType: 'ExcludeValues', values: ['NOT_DELETED'] };
+  const salesPay = f.payCombo || f.pay;
+  // Комбинация оплат сохраняет выручку чека одной строкой. Смешанные оплаты
+  // без отдельных сумм по способам показываем в нераспределённых.
   const P = {
     dept: f.dept ? run([f.dept], aggMain) : run([f.hour || f.waiter], aggMain),
     pay: f.pay ? run([f.pay], [f.rev]) : null,
@@ -74,7 +83,10 @@ async function buildReport(iiko, day, sel, opts = {}) {
     dish: f.dish ? run([f.dish], [f.qty, f.rev, f.cost]) : null,
     hours: f.hour ? run([f.hour], [f.rev, f.orders]) : null,
     del: f.del ? run([f.del, f.waiter, f.dish], [f.gross || f.rev, f.qty], dflt) : null,
-    disc: f.discType ? run([f.discType, f.waiter], [f.rev, f.gross]) : null,
+    disc: f.gross && (f.discType || salesPay || f.fiscal)
+      ? run([f.discType, salesPay, f.fiscal, f.waiter], [f.rev, f.gross])
+      : null,
+    sales: salesPay ? run([...new Set([f.floor, f.dept, f.entity, salesPay, f.discType])], [f.rev, f.gross]) : null,
     prev: run([f.dept || f.waiter], [f.rev, f.orders, f.guests], baseFilters(f, pd, isoAdd(pd, 1), deptIds, deptNames, true))
   };
 
@@ -130,12 +142,92 @@ async function buildReport(iiko, day, sel, opts = {}) {
   out.totals.deleted_sum = r2(out.deletions.reduce((s, x) => s + x.sum, 0));
   out.totals.deleted_qty = r2(out.deletions.reduce((s, x) => s + x.qty, 0));
 
-  // скидки по типам
   out.discounts = [];
-  if (f.discType) {
+  if (P.disc) {
     const rows = await P.disc;
-    out.discounts = rows.map((row) => ({ type: String(row[f.discType] || 'Без скидки'), waiter: f.waiter ? String(row[f.waiter] || '—') : '—',
-      sum: r2(Math.max(0, num(row[f.gross]) - num(row[f.rev]))) })).filter((x) => x.sum > 0 && x.type !== 'Без скидки').sort((a, b) => b.sum - a.sum).slice(0, 15);
+    const reportedGross = rows.reduce((sum, row) => sum + num(row[f.gross]), 0);
+    const reportedNet = rows.reduce((sum, row) => sum + num(row[f.rev]), 0);
+    if (Math.abs(reportedGross - tot.gross) < 0.02 && Math.abs(reportedNet - tot.revenue) < 0.02) {
+      const discounts = new Map();
+      const nonFiscal = new Map();
+      const byWaiter = new Map();
+      let eligibleGross = 0, eligibleNet = 0;
+      for (const row of rows) {
+        const type = row[f.discType] || '';
+        const payment = row[salesPay] || '';
+        const group = classification(type, payment, row[f.fiscal]);
+        const waiter = String(row[f.waiter] || 'Без официанта');
+        const gross = num(row[f.gross]), net = num(row[f.rev]);
+        if (group === 'promo') continue;
+        if (group === 'nonFiscal') {
+          const name = classification(type) === 'nonFiscal' ? type : payment || type || 'Прочие';
+          const entry = nonFiscal.get(name) || { type: name, sum: 0 };
+          entry.sum += gross;
+          nonFiscal.set(name, entry);
+          continue;
+        }
+        eligibleGross += gross;
+        eligibleNet += net;
+        const w = byWaiter.get(waiter) || { gross: 0, net: 0 };
+        w.gross += gross;
+        w.net += net;
+        byWaiter.set(waiter, w);
+        if (type) {
+          const key = JSON.stringify([type, waiter]);
+          const entry = discounts.get(key) || { type, waiter, sum: 0 };
+          entry.sum += gross - net;
+          discounts.set(key, entry);
+        }
+      }
+      out.totals.discount = r2(Math.max(0, eligibleGross - eligibleNet));
+      out.totals.discount_base = r2(eligibleGross);
+      out.non_fiscal = [...nonFiscal.values()].map((x) => ({ ...x, sum: r2(x.sum) })).sort((a, b) => b.sum - a.sum);
+      out.discounts = [...discounts.values()].filter((x) => x.sum > 0)
+        .sort((a, b) => b.sum - a.sum).slice(0, 15).map((x) => ({ ...x, sum: r2(x.sum) }));
+      out.waiters.forEach((w) => {
+        const x = byWaiter.get(w.name);
+        w.discount_base = x ? r2(x.gross) : 0;
+        w.discount = x ? r2(Math.max(0, x.gross - x.net)) : 0;
+        w.discount_share = x && x.gross > 0 ? r2(w.discount / x.gross) : 0;
+      });
+    } else {
+      out.totals.discount = null;
+      out.totals.discount_base = null;
+      out.waiters.forEach((w) => { w.discount = null; w.discount_share = null; });
+      (out.errors = out.errors || []).push('Детализация скидок не совпала с итогами iiko');
+    }
+  }
+
+  const salesRows = P.sales ? await P.sales : null;
+  const salesMatch = salesRows && Math.abs(salesRows.reduce((sum, row) => sum + num(row[f.rev]), 0) - tot.revenue) < 0.02;
+  if (P.sales && !salesMatch) (out.errors = out.errors || []).push('Детализация выручки не совпала с итогами iiko');
+  if (salesMatch) {
+    const rows = salesRows;
+    const grouped = new Map();
+    for (const row of rows) {
+      if (classification(row[f.discType], row[salesPay]) !== 'regular') continue;
+      const floor = floorOf(row[f.floor], row[f.dept]);
+      const entity = entityOf(row[f.entity]);
+      const payment = paymentOf(row[salesPay]);
+      const key = JSON.stringify([floor, entity, payment]);
+      const entry = grouped.get(key) || { floor, entity, payment, sum: 0 };
+      entry.sum += num(row[f.rev]);
+      grouped.set(key, entry);
+    }
+    if (rows.length || !tot.revenue) {
+      out.revenue_breakdown = [...grouped.values()].map((x) => ({ ...x, sum: r2(x.sum) }));
+    }
+  }
+  if (salesMatch && f.gross && Math.abs(salesRows.reduce((sum, row) => sum + num(row[f.gross]), 0) - tot.gross) < 0.02) {
+    const rows = salesRows;
+    if (rows.length || !tot.gross) {
+      const amounts = { '1': 0, '2': 0, unknown: 0 };
+      for (const row of rows) {
+        if (classification(row[f.discType], row[salesPay]) !== 'promo') continue;
+        amounts[floorOf(row[f.floor], row[f.dept])] += num(row[f.gross]);
+      }
+      out.promo = Object.fromEntries(Object.entries(amounts).map(([floor, sum]) => [floor, r2(sum)]));
+    }
   }
 
   // тот же день недели неделю назад
@@ -163,7 +255,8 @@ function flags(o) {
   }
   const noWo = o.deletions.filter((d) => /WITHOUT/i.test(d.type)).reduce((s, d) => s + d.sum, 0);
   if (noWo >= 1000) out.push({ level: 'warn', text: `Удалено без списания на ${money(noWo)} — проверьте причины` });
-  const share = t.gross ? t.discount / t.gross : 0;
+  const discountBase = t.discount_base ?? t.gross;
+  const share = discountBase > 0 ? t.discount / discountBase : 0;
   if (share >= 0.12) out.push({ level: 'warn', text: `Скидки — ${pct(share)} от суммы чеков (${money(t.discount)})` });
   const ws = o.waiters.filter((w) => w.revenue > 0);
   ws.forEach((w) => {

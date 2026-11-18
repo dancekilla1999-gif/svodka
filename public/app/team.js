@@ -13,7 +13,21 @@
     { id: "staff", name: "Персонал", ico: "👥", role: "Официанты и загрузка по часам: кого похвалить, с кем поговорить, где лишние люди" },
     { id: "menu", name: "Меню", ico: "🍽", role: "Блюда по продажам и марже: звёзды, лошадки, загадки и кандидаты на вывод" }
   ];
-  var CAT = { rent: "Аренда", staff: "Зарплаты (ФОТ)", utilities: "Коммунальные", marketing: "Маркетинг", taxes: "Налоги", bank: "Эквайринг и банк", other: "Прочее" };
+  var CAT = {
+    rent: "Аренда",
+    staff: "ФОТ",
+    utilities: "Коммунальные",
+    kitchen: "Закупка кухня",
+    bar: "Закупка бар",
+    household: "Закупка Хозтовары",
+    equipment: "Закупка Инвентарь, техника, канцелярия",
+    other_purchases: "Закупка прочие",
+    maintenance: "Содержание помещения, ремонт",
+    marketing: "Медиа, реклама",
+    other: "Прочие расходы",
+    taxes: "Налоги",
+    bank: "Эквайринг, комиссии р/с"
+  };
   var KIND = { month: "в месяц", week: "в неделю", once: "разово", percent: "% от выручки" };
   function byId(id) { for (var i = 0; i < AG.length; i++) if (AG[i].id === id) return AG[i]; return null; }
   function lvl(l) { return l === "bad" ? "bad" : l === "warn" ? "warn" : "ok"; }
