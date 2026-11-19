@@ -23,7 +23,13 @@ const CANDIDATES = {
   fiscal: ['PayTypes.IsPrintCheque'],
   floor: ['RestaurantSection'],
   entity: ['JurName'],
-  payCombo: ['PayTypes.Combo']
+  payCombo: ['PayTypes.Combo'],
+  receipt: ['OrderNum'],
+  orderId: ['UniqOrderId.Id'],
+  closed: ['CloseTime'],
+  table: ['TableNum'],
+  cardOwner: ['CardOwner'],
+  authorizedBy: ['AuthUser']
 };
 
 function pick(cols, list) { for (const f of list) if (cols[f]) return f; return null; }
@@ -63,7 +69,8 @@ async function buildReport(iiko, day, sel, opts = {}) {
   const from = day, to = isoAdd(day, 1);
   const flt = baseFilters(f, from, to, deptIds, deptNames, true);
   const aggMain = [f.rev, f.gross, f.orders, f.guests, f.cost];
-  const missing = Object.keys(f).filter((k) => !f[k] && ['deptId', 'disc', 'discType', 'cost', 'fiscal', 'floor', 'entity', 'payCombo'].indexOf(k) < 0);
+  const optionalFields = ['deptId', 'disc', 'discType', 'cost', 'fiscal', 'floor', 'entity', 'payCombo', 'receipt', 'orderId', 'closed', 'table', 'cardOwner', 'authorizedBy'];
+  const missing = Object.keys(f).filter((k) => !f[k] && !optionalFields.includes(k));
   const out = { demo: false, day, depts: deptNames, generated_at: new Date().toISOString(), fields_missing: missing };
   // OLAP-запросы идут параллельно (не больше 4 одновременно): последовательно медленный iiko не укладывался в лимит функции
   let active = 0; const waiting = [];
@@ -74,6 +81,9 @@ async function buildReport(iiko, day, sel, opts = {}) {
   const dflt = f.del ? baseFilters(f, from, to, deptIds, deptNames, false) : null;
   if (dflt) dflt[f.del] = { filterType: 'ExcludeValues', values: ['NOT_DELETED'] };
   const salesPay = f.payCombo || f.pay;
+  const discountGroups = [f.discType, salesPay, f.fiscal, f.waiter];
+  const discountDetailGroups = [...new Set([...discountGroups, f.receipt, f.orderId, f.closed, f.table, f.cardOwner, f.authorizedBy, f.floor, f.dept].filter(Boolean))];
+  const hasReceiptDetail = !!(f.receipt || f.orderId);
   // Комбинация оплат сохраняет выручку чека одной строкой. Смешанные оплаты
   // без отдельных сумм по способам показываем в нераспределённых.
   const P = {
@@ -84,7 +94,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
     hours: f.hour ? run([f.hour], [f.rev, f.orders]) : null,
     del: f.del ? run([f.del, f.waiter, f.dish], [f.gross || f.rev, f.qty], dflt) : null,
     disc: f.gross && (f.discType || salesPay || f.fiscal)
-      ? run([f.discType, salesPay, f.fiscal, f.waiter], [f.rev, f.gross])
+      ? run(hasReceiptDetail ? discountDetailGroups : discountGroups, [f.rev, f.gross])
       : null,
     sales: salesPay ? run([...new Set([f.floor, f.dept, f.entity, salesPay, f.discType])], [f.rev, f.gross]) : null,
     prev: run([f.dept || f.waiter], [f.rev, f.orders, f.guests], baseFilters(f, pd, isoAdd(pd, 1), deptIds, deptNames, true))
@@ -144,11 +154,17 @@ async function buildReport(iiko, day, sel, opts = {}) {
 
   out.discounts = [];
   if (P.disc) {
-    const rows = await P.disc;
-    const reportedGross = rows.reduce((sum, row) => sum + num(row[f.gross]), 0);
-    const reportedNet = rows.reduce((sum, row) => sum + num(row[f.rev]), 0);
-    if (Math.abs(reportedGross - tot.gross) < 0.02 && Math.abs(reportedNet - tot.revenue) < 0.02) {
+    let rows = await P.disc;
+    const reconciles = (items) => Math.abs(items.reduce((sum, row) => sum + num(row[f.gross]), 0) - tot.gross) < 0.02
+      && Math.abs(items.reduce((sum, row) => sum + num(row[f.rev]), 0) - tot.revenue) < 0.02;
+    const detailed = hasReceiptDetail && reconciles(rows);
+    if (hasReceiptDetail && !detailed) {
+      rows = await run(discountGroups, [f.rev, f.gross]);
+      (out.errors = out.errors || []).push('Реестр скидок по чекам недоступен; получены общие данные');
+    }
+    if (reconciles(rows)) {
       const discounts = new Map();
+      const discountDetails = new Map();
       const nonFiscal = new Map();
       const byWaiter = new Map();
       let eligibleGross = 0, eligibleNet = 0;
@@ -172,11 +188,28 @@ async function buildReport(iiko, day, sel, opts = {}) {
         w.gross += gross;
         w.net += net;
         byWaiter.set(waiter, w);
-        if (type) {
-          const key = JSON.stringify([type, waiter]);
-          const entry = discounts.get(key) || { type, waiter, sum: 0 };
+        if (gross !== net) {
+          const discountType = type || 'Тип не указан';
+          const key = JSON.stringify([discountType, waiter]);
+          const entry = discounts.get(key) || { type: discountType, waiter, sum: 0 };
           entry.sum += gross - net;
           discounts.set(key, entry);
+          if (detailed) {
+            const detail = {
+              type: discountType, waiter,
+              receipt: String(row[f.receipt] ?? ''),
+              order_id: String(row[f.orderId] ?? ''),
+              closed: String(row[f.closed] ?? ''),
+              table: String(row[f.table] ?? ''),
+              guest: String(row[f.cardOwner] ?? ''),
+              authorized_by: String(row[f.authorizedBy] ?? ''),
+              room: String(row[f.floor] ?? row[f.dept] ?? '')
+            };
+            const detailKey = JSON.stringify(detail);
+            const existing = discountDetails.get(detailKey) || { ...detail, sum: 0 };
+            existing.sum += gross - net;
+            discountDetails.set(detailKey, existing);
+          }
         }
       }
       out.totals.discount = r2(Math.max(0, eligibleGross - eligibleNet));
@@ -184,6 +217,11 @@ async function buildReport(iiko, day, sel, opts = {}) {
       out.non_fiscal = [...nonFiscal.values()].map((x) => ({ ...x, sum: r2(x.sum) })).sort((a, b) => b.sum - a.sum);
       out.discounts = [...discounts.values()].filter((x) => x.sum > 0)
         .sort((a, b) => b.sum - a.sum).slice(0, 15).map((x) => ({ ...x, sum: r2(x.sum) }));
+      if (detailed) {
+        out.discount_details = [...discountDetails.values()].filter((x) => x.sum > 0)
+          .map((x) => ({ ...x, sum: r2(x.sum) }))
+          .sort((a, b) => a.closed.localeCompare(b.closed) || a.receipt.localeCompare(b.receipt));
+      }
       out.waiters.forEach((w) => {
         const x = byWaiter.get(w.name);
         w.discount_base = x ? r2(x.gross) : 0;
@@ -209,8 +247,10 @@ async function buildReport(iiko, day, sel, opts = {}) {
       const floor = floorOf(row[f.floor], row[f.dept]);
       const entity = entityOf(row[f.entity]);
       const payment = paymentOf(row[salesPay]);
-      const key = JSON.stringify([floor, entity, payment]);
-      const entry = grouped.get(key) || { floor, entity, payment, sum: 0 };
+      const entityName = String(row[f.entity] ?? '');
+      const paymentName = String(row[salesPay] ?? '');
+      const key = JSON.stringify([floor, entity, payment, entityName, paymentName]);
+      const entry = grouped.get(key) || { floor, entity, payment, entity_name: entityName, payment_name: paymentName, sum: 0 };
       entry.sum += num(row[f.rev]);
       grouped.set(key, entry);
     }

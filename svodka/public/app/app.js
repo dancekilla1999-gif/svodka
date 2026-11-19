@@ -156,26 +156,27 @@
   function revenueTable(items) {
     var payments = ["cash", "card", "bank", "unknown"];
     function row(label, floor, entity) {
-      return [label].concat(payments.map(function (payment) {
-        return money(items.reduce(function (sum, x) {
+      var amounts = payments.map(function (payment) {
+        return items.reduce(function (sum, x) {
           return sum + ((!floor || x.floor === floor) && (!entity || x.entity === entity) && x.payment === payment ? x.sum : 0);
-        }, 0));
-      }));
+        }, 0);
+      });
+      return [label, money(amounts.reduce(function (sum, n) { return sum + n; }, 0))].concat(amounts.map(money));
     }
     var rows = [];
     ["1", "2"].forEach(function (floor) {
-      rows.push(row(floor + " этаж · ООО", floor, "ООО"), row(floor + " этаж · ИП", floor, "ИП"));
+      ["ООО", "ИП"].forEach(function (entity) {
+        if (items.some(function (x) { return x.floor === floor && x.entity === entity && x.sum; })) rows.push(row(floor + " этаж · " + entity, floor, entity));
+      });
       if (items.some(function (x) { return x.floor === floor && x.entity === "unknown" && x.sum; })) {
-        rows.push(row(floor + " этаж · Юрлицо не указано", floor, "unknown"));
+        var names = Array.from(new Set(items.filter(function (x) { return x.floor === floor && x.entity === "unknown"; }).map(function (x) { return x.entity_name; }).filter(Boolean)));
+        rows.push(row(floor + " этаж · Юрлицо не определено" + (names.length ? " (" + names.join(", ") + ")" : ""), floor, "unknown"));
       }
       rows.push(row("ИТОГО " + floor + " этаж", floor));
     });
-    var total = ["ВСЕГО 1 и 2 этаж"].concat(payments.map(function (payment) {
-      return money(items.reduce(function (sum, x) { return sum + (x.floor !== "unknown" && x.payment === payment ? x.sum : 0); }, 0));
-    }));
-    rows.push(total);
     if (items.some(function (x) { return x.floor === "unknown" && x.sum; })) rows.push(row("Этаж не указан", "unknown"));
-    return table(["Этаж / юрлицо", "Наличные", "Карты", "Расчётный счёт", "Не распределено"], rows, [1, 2, 3, 4]);
+    rows.push(row("ВСЕГО по разбивке"));
+    return table(["Этаж / юрлицо", "Итого", "Наличные", "Карты", "Безналичный расчёт / р/с", "Способ не определён"], rows, [1, 2, 3, 4, 5]);
   }
   function report(r) {
     var o = r.data || {}, t = o.totals || {}, p = o.prev || {};
@@ -228,6 +229,12 @@
         ].concat(o.promo.unknown ? [["Этаж не указан", money(o.promo.unknown)]] : []), [1])) : null,
       (o.non_fiscal || []).length ? h("section", { class: "form" }, h("h2", { text: "Нефискальные чеки" }),
         table(["Тип", "Сумма до скидок"], o.non_fiscal.map(function (x) { return [x.type, money(x.sum)]; }), [1])) : null,
+      o.discount_details ? h("section", { class: "form", id: "discount-details" }, h("h2", { text: "Реестр скидок по чекам" }),
+        h("p", { class: "small muted", text: "Время закрытия чека по iiko. Гость и авторизация отображаются, когда эти сведения есть в отчёте iiko." }),
+        o.discount_details.length ? table(["Закрытие чека", "Чек", "Зал / стол", "Гость / владелец карты", "Вид скидки", "Сотрудник", "Авторизация", "Сумма"], o.discount_details.map(function (x) {
+          return [x.closed ? x.closed.replace("T", " ").slice(0, 16) : "—", x.receipt || x.order_id || "—", [x.room, x.table ? "стол " + x.table : ""].filter(Boolean).join(" · ") || "—", x.guest || "Не указан", x.type, x.waiter, x.authorized_by || "—", money(x.sum)];
+        }), [7]) : h("p", { class: "small muted", text: "Скидок по чекам нет." })) :
+        t.discount > 0 ? h("section", { class: "form" }, h("h2", { text: "Реестр скидок по чекам" }), h("p", { class: "small muted", text: "Детализация по чекам не получена. Для старого отчёта сформируйте его повторно." })) : null,
       (o.discounts || []).length ? h("section", { class: "form" }, h("h2", { text: "Скидки по типам" }),
         table(["Скидка", "Сотрудник", "Сумма"], o.discounts.map(function (x) { return [x.type, x.waiter, money(x.sum)]; }), [2])) : null,
       h("div", { class: "card row no-print", style: "justify-content:space-between" }, h("div", null, h("b", { text: "Что говорят агенты" }), h("p", { class: "small muted", text: "Закупки и цены, прибыль, персонал и меню — в разделе «Агенты». Там же можно спросить управляющего." })), h("a", { class: "btn small primary", href: "#/agents", text: "Открыть агентов" })),
