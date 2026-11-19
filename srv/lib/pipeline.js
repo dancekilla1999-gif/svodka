@@ -5,7 +5,7 @@ const { Iiko } = require('./iiko');
 const { buildReport } = require('./report');
 const { demoReport, demoPurchases } = require('./demo');
 const { collectPurchases } = require('./purchases');
-const { reportText, tgSend } = require('./text');
+const { reportText, discountRegistryText, tgSend } = require('./text');
 const A = require('./agents');
 
 // доступ к базе от имени владельца: по токену (кабинет) или по секрету крона (сервер)
@@ -68,7 +68,13 @@ async function runDay(db, conn, day, opts = {}) {
   let sent = false;
   if (opts.chatId && opts.send !== false) {
     const link = opts.base ? `${opts.base}/app/#/r/${saved.id}` : null;
-    sent = await tgSend(opts.chatId, reportText(report, link) + '\n' + A.tgDailyExtra(sh, pr, tip)).catch(() => false);
+    sent = await tgSend(opts.chatId, reportText(report, link, A.tgDailyExtra(pr, tip))).catch(() => false);
+    if (sent) {
+      for (const message of discountRegistryText(report, link)) {
+        const delivered = await tgSend(opts.chatId, message).catch(() => false);
+        if (!delivered) { console.error('Не удалось отправить часть реестра скидок'); break; }
+      }
+    }
     if (week && prefs.weekly_tg) await tgSend(opts.chatId, A.tgWeekly(week.director, week.finance, opts.base ? `${opts.base}/app/#/agents` : null)).catch(() => false);
   }
   return { id: saved.id, sent, week: !!week, shift: sh, purchases: pr, tip };

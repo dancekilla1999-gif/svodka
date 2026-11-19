@@ -368,17 +368,13 @@ function fallbackAnswer(q, ctx) {
 // ------------------------------------------------------------------ тексты для Telegram
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function dot(l) { return l === 'bad' ? '🔴' : l === 'warn' ? '🟡' : '🟢'; }
-function tgDailyExtra(shiftRes, purchRes, tip) {
+function tgDailyExtra(purchRes, tip) {
   const L = [];
-  const m = shiftRes && shiftRes.data.metrics;
-  if (m && m.cost != null) L.push(`📦 Себестоимость: ${money(m.cost)} · фудкост ${pct1(m.food_cost)}`);
-  if (m && m.profit != null && m.has_expenses) L.push(`📈 Прибыль смены ≈ <b>${money(m.profit)}</b> (с долей расходов ${money(m.expenses)})`);
-  else if (m && m.gross != null) L.push(`📈 Валовая прибыль: <b>${money(m.gross)}</b> · внесите расходы в кабинете, чтобы видеть чистую`);
   if (purchRes && purchRes.data.rows.length) {
-    L.push(''); L.push(`<b>Закупки:</b> ${money(purchRes.data.sum)}` + (purchRes.data.up ? ` · подорожало ${purchRes.data.up}` : ''));
+    L.push(`<b>📦 ЗАКУПКИ</b>`, `Сумма: ${money(purchRes.data.sum)}` + (purchRes.data.up ? ` · подорожало ${purchRes.data.up}` : ''));
     purchRes.items.filter((i) => i.level !== 'ok').slice(0, 3).forEach((i) => L.push(`${dot(i.level)} ${esc(i.text)}`));
   }
-  if (tip) { L.push(''); L.push(`🧭 <b>Совет управляющего:</b> ${esc(tip)}`); }
+  if (tip) { if (L.length) L.push(''); L.push(`🧭 <b>Совет управляющего</b>\n${esc(tip)}`); }
   return L.join('\n');
 }
 function tgWeekly(dir, fin, link) {
