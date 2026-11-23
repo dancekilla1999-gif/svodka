@@ -5,7 +5,7 @@ const { Iiko } = require('./iiko');
 const { buildReport } = require('./report');
 const { demoReport, demoPurchases } = require('./demo');
 const { collectPurchases } = require('./purchases');
-const { reportText, discountRegistryText, tgSend } = require('./text');
+const { reportText, tgSend } = require('./text');
 const A = require('./agents');
 
 // доступ к базе от имени владельца: по токену (кабинет) или по секрету крона (сервер)
@@ -34,7 +34,7 @@ async function runDay(db, conn, day, opts = {}) {
     await c.auth();
     console.log('iiko auth', Date.now() - t0, 'ms');
     try {
-      report = await buildReport(c, day, conn.selected && conn.selected.length ? conn.selected : conn.departments, { partial: opts.partial });
+      report = await buildReport(c, day, conn.selected && conn.selected.length ? conn.selected : conn.departments, { partial: opts.partial, prefs });
       console.log('iiko report', Date.now() - t0, 'ms', report.errors ? 'errors: ' + report.errors.join(' | ') : '');
       // закупки — не дольше 20 с, чтобы отчёт успел уйти; не успели — цены подтянутся в следующий раз
       if (prefs.purchases && !opts.partial) {
@@ -67,14 +67,9 @@ async function runDay(db, conn, day, opts = {}) {
   if (opts.week === true || (opts.week !== false && A.dow(day) === 0 && !opts.partial)) week = await runWeek(db, day, { noAi: opts.noAi, prefs });
   let sent = false;
   if (opts.chatId && opts.send !== false) {
-    const link = opts.base ? `${opts.base}/app/#/r/${saved.id}` : null;
+    // Ссылка без # — Telegram и ins-браузеры часто отрезают якорь, и человек попадал на оболочку кабинета, а не в отчёт.
+    const link = opts.base ? `${opts.base}/app/r/${saved.id}` : null;
     sent = await tgSend(opts.chatId, reportText(report, link, A.tgDailyExtra(pr, tip))).catch(() => false);
-    if (sent) {
-      for (const message of discountRegistryText(report, link)) {
-        const delivered = await tgSend(opts.chatId, message).catch(() => false);
-        if (!delivered) { console.error('Не удалось отправить часть реестра скидок'); break; }
-      }
-    }
     if (week && prefs.weekly_tg) await tgSend(opts.chatId, A.tgWeekly(week.director, week.finance, opts.base ? `${opts.base}/app/#/agents` : null)).catch(() => false);
   }
   return { id: saved.id, sent, week: !!week, shift: sh, purchases: pr, tip };

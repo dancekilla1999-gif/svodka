@@ -37,7 +37,51 @@ function demoReport(day, opts = {}) {
     deletions: del, discounts: [{ type: 'Скидка постоянного гостя 10%', waiter: WAITERS[3], sum: r2(discount * 0.45) }, { type: 'Скидка сотрудника 30%', waiter: WAITERS[0], sum: r2(discount * 0.2) }, { type: 'Комплимент от шефа', waiter: WAITERS[2], sum: r2(discount * 0.15) }],
     prev: { day: isoAdd(day, -7), revenue: r2(revenue * pk), orders: Math.round(orders * (0.95 + R() * 0.1)), guests: Math.round(guests * 0.97) }
   };
-  out.pay.forEach((p) => { p.share = r2(p.sum / revenue); });
+  const promo = 2400;
+  const nonFiscal = [
+    { type: 'Андрей Михайлович', sum: 4500, count: 2 },
+    { type: 'Маркетинг', sum: 3200, count: 1 },
+    { type: 'Персонал', sum: 2100, count: 3 },
+    { type: 'Представительская оплата', sum: 1800, count: 1 }
+  ];
+  const luna = r2(discount * 0.62);
+  const restDisc = r2(Math.max(0, discount - luna));
+  const guestDisc = r2(restDisc * 0.65);
+  const staffDisc = r2(restDisc - guestDisc);
+  out.discount_by_type = [
+    { type: 'Луна', sum: luna, count: 8 },
+    { type: 'Скидка постоянного гостя 10%', sum: guestDisc, count: 3 },
+    { type: 'Скидка сотрудника 30%', sum: staffDisc, count: 2 }
+  ].filter((x) => x.sum > 0);
+  out.discounts = [
+    { type: 'Луна', waiter: WAITERS[3], sum: r2(luna * 0.55) },
+    { type: 'Луна', waiter: WAITERS[1], sum: r2(luna * 0.45) },
+    { type: 'Скидка постоянного гостя 10%', waiter: WAITERS[3], sum: guestDisc },
+    { type: 'Скидка сотрудника 30%', waiter: WAITERS[0], sum: staffDisc }
+  ].filter((x) => x.sum > 0);
+  out.discount_details = [];
+  for (let i = 0; i < 8; i++) {
+    const hh = 14 + Math.floor(i / 2);
+    const mm = (i % 2) * 27 + 8;
+    out.discount_details.push({
+      type: 'Луна', waiter: WAITERS[i % 2 === 0 ? 3 : 1], sum: r2(luna / 8),
+      receipt: String(1800 + i), order_id: 'demo-luna-' + i,
+      closed: day + 'T' + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0') + ':00',
+      table: String(12 + i), guest: 'Луна', authorized_by: WAITERS[0], room: '1 этаж'
+    });
+  }
+  out.discount_details.push(
+    { type: 'Скидка постоянного гостя 10%', waiter: WAITERS[3], sum: guestDisc, receipt: '1901', order_id: 'demo-g', closed: day + 'T19:10:00', table: '4', guest: 'Ирина', authorized_by: WAITERS[3], room: '2 этаж' },
+    { type: 'Скидка сотрудника 30%', waiter: WAITERS[0], sum: staffDisc, receipt: '1910', order_id: 'demo-s', closed: day + 'T20:40:00', table: '8', guest: '', authorized_by: WAITERS[0], room: '1 этаж' }
+  );
+  out.non_fiscal = nonFiscal;
+  out.promo = { '1': promo, '2': 0, unknown: 0 };
+  out.totals.discount_base = r2(gross);
+  out.totals.revenue = r2(revenue + promo);
+  out.totals.avg_check = r2(out.totals.revenue / orders);
+  out.totals.avg_guest = r2(out.totals.revenue / guests);
+  out.pay.forEach((p) => { p.share = r2(p.sum / out.totals.revenue); });
+  out.pay.push({ name: 'ПромоБезОплаты', sum: promo, share: r2(promo / out.totals.revenue) });
   out.prev.avg_check = r2(out.prev.revenue / out.prev.orders);
   out.totals.deleted_sum = del.reduce((s, d) => s + d.sum, 0); out.totals.deleted_qty = del.length;
   out.flags = flags(out);
