@@ -75,9 +75,14 @@ function demoReport(day, opts = {}) {
     { type: 'Скидка сотрудника 30%', waiter: WAITERS[0], sum: staffDisc, receipt: '1910', order_id: 'demo-s', closed: day + 'T20:40:00', table: '8', guest: '', authorized_by: WAITERS[0], room: '1 этаж' }
   );
   out.non_fiscal = nonFiscal;
-  out.promo = { '1': promo, '2': 0, unknown: 0 };
+  out.promo_items = [{ label: 'Стол 27 · ПромоБезОплаты', table: '27', type: 'ПромоБезОплаты', sum: promo, count: 1 }];
+  out.promo_total = promo;
+  out.unprinted = { sum: 1800, count: 2 };
   out.totals.discount_base = r2(gross);
   out.totals.revenue = r2(revenue + promo);
+  out.totals.orders = orders;
+  out.totals.guests = guests;
+  out.totals.guests_include_non_fiscal = false;
   out.totals.avg_check = r2(out.totals.revenue / orders);
   out.totals.avg_guest = r2(out.totals.revenue / guests);
   out.pay.forEach((p) => { p.share = r2(p.sum / out.totals.revenue); });

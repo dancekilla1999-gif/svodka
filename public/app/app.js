@@ -200,9 +200,9 @@
         h("div", { class: "row no-print" }, h("a", { class: "btn ghost small", href: "#/home", text: "← Все отчёты" }), h("button", { class: "btn small", text: "Печать / PDF", onclick: function () { window.print(); } }))),
       h("div", { class: "kpis" },
         h("div", { class: "kpi main" }, h("span", { class: "k-label", text: "Выручка" }), h("span", { class: "k-val", text: money(t.revenue) }), h("span", { class: "k-sub" }, delta(t.revenue, p.revenue), p.revenue ? " к " + dayShort(p.day) + " (" + money(p.revenue) + ")" : "")),
-        h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Чеков" }), h("span", { class: "k-val", text: int(t.orders) }), h("span", { class: "k-sub" }, delta(t.orders, p.orders), p.orders ? " · было " + int(p.orders) : "")),
+        h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Чеков" }), h("span", { class: "k-val", text: int(t.orders) }), h("span", { class: "k-sub", text: (t.guests_include_non_fiscal ? "включая нефискальные" : "фискальные и промо") + (p.orders ? " · было " + int(p.orders) : "") })),
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Средний чек" }), h("span", { class: "k-val", text: money(t.avg_check) }), h("span", { class: "k-sub" }, delta(t.avg_check, p.avg_check), p.avg_check ? " · было " + money(p.avg_check) : "")),
-        h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Гостей" }), h("span", { class: "k-val", text: int(t.guests) }), h("span", { class: "k-sub", text: "на гостя " + money(t.avg_guest) })),
+        h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Гостей" }), h("span", { class: "k-val", text: int(t.guests) }), h("span", { class: "k-sub", text: (t.guests_include_non_fiscal ? "включая нефискальные · " : "") + "на гостя " + money(t.avg_guest) })),
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Скидки" }), h("span", { class: "k-val", text: t.discount == null ? "—" : money(t.discount) }), h("span", { class: "k-sub", text: t.discount == null ? "Данные iiko недоступны" : pct(discShare) + " от суммы чеков" })),
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Удаления" }), h("span", { class: "k-val", text: money(t.deleted_sum) }), h("span", { class: "k-sub", text: int(t.deleted_qty) + " позиций" })),
         t.cost != null ? h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Себестоимость" }), h("span", { class: "k-val", text: money(t.cost) }), h("span", { class: "k-sub", text: "фудкост " + pct(t.revenue ? t.cost / t.revenue : 0) })) : null,
@@ -255,13 +255,21 @@
         table(["Тип оплаты", "Чеков", "Сумма"], o.non_fiscal.map(function (x) { return [x.type, x.count ? int(x.count) : "—", money(x.sum)]; }).concat([
           ["ВСЕГО", int(o.non_fiscal.reduce(function (s, x) { return s + (Number(x.count) || 0); }, 0)) || "—", money(o.non_fiscal.reduce(function (s, x) { return s + (Number(x.sum) || 0); }, 0))]
         ]), [1, 2])) : null,
-      o.promo ? h("section", { class: "form" }, h("h2", { text: "Промо без оплаты" }),
-        h("p", { class: "small muted", text: "Тип «ПромоБезОплаты» входит в выручку." }),
-        table(["Этаж", "Сумма"], [
-          ["Промо без оплаты 1 этаж", money(o.promo["1"])],
-          ["Промо без оплаты 2 этаж", money(o.promo["2"])],
-          ["ВСЕГО промо без оплаты", money((o.promo["1"] || 0) + (o.promo["2"] || 0) + (o.promo.unknown || 0))]
-        ].concat(o.promo.unknown ? [["Этаж не указан", money(o.promo.unknown)]] : []), [1])) : null,
+      (o.unprinted && (o.unprinted.sum || o.unprinted.count)) ? h("p", { class: "small muted", text: "без фискального чека, не из списка: " + money(o.unprinted.sum) + " · " + int(o.unprinted.count || 0) + " чеков. Эти суммы входят в выручку." }) : null,
+      (function () {
+        var items = o.promo_items && o.promo_items.length ? o.promo_items : (o.promo ? [
+          o.promo["1"] ? { label: "1 этаж", sum: o.promo["1"] } : null,
+          o.promo["2"] ? { label: "2 этаж", sum: o.promo["2"] } : null,
+          o.promo.unknown ? { label: "Этаж не указан", sum: o.promo.unknown } : null
+        ].filter(Boolean) : []);
+        if (!items.length && !o.promo_total) return null;
+        var total = o.promo_total != null ? o.promo_total : items.reduce(function (s, x) { return s + (Number(x.sum) || 0); }, 0);
+        return h("section", { class: "form" }, h("h2", { text: "Промо без оплаты" }),
+          h("p", { class: "small muted", text: "Входит в выручку." }),
+          table(["Тип / стол", "Чеков", "Сумма"], items.map(function (x) {
+            return [x.label || x.type, x.count ? int(x.count) : "—", money(x.sum)];
+          }).concat([["ВСЕГО промо без оплаты", items.reduce(function (s, x) { return s + (Number(x.count) || 0); }, 0) ? int(items.reduce(function (s, x) { return s + (Number(x.count) || 0); }, 0)) : "—", money(total)]]), [1, 2]));
+      })(),
       o.discount_details ? h("section", { class: "form", id: "discount-details" }, h("h2", { text: "Реестр скидок по чекам" }),
         h("p", { class: "small muted", text: "Подробности для разбора в кабинете. В Telegram уходит только сумма по каждому типу, без списка чеков." }),
         o.discount_details.length ? table(["Закрытие чека", "Чек", "Зал / стол", "Гость / владелец карты", "Вид скидки", "Сотрудник", "Авторизация", "Сумма"], o.discount_details.map(function (x) {
@@ -400,7 +408,7 @@
           } }) : null)) : null,
       (function () {
         var prefs = d.prefs || {};
-        var defNon = "Андрей Михайлович\nАлексей Р.Ш.\nРасим\nПредставительская оплата\nАнтон бухгалтер\nНадежда\nМаркетинг\nЗахар\nПерсонал\nПромокод Smoke\nСъёмка СММ";
+        var defNon = "334 Андрей Михайлович\n335 Алексей Р.Ш.\n338 Расим\n49 Представительская оплата\n19 Антон бухгалтер\n336 Надежда\n20 Маркетинг\n88 Захар\n88 Персонал";
         var defPromo = "ПромоБезОплаты";
         function asText(v, fallback) {
           if (Array.isArray(v) && v.length) return v.join("\n");
