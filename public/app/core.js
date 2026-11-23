@@ -162,6 +162,20 @@
     if (location.hash === "#" + path) SV.dispatch(); else location.hash = "#" + path;
   };
   SV.path = function () { return location.hash.replace(/^#/, "") || "/"; };
+  // Ссылки из Telegram: /app/r/123. Якорь #/r/123 мессенджеры часто отрезают, поэтому канонический адрес — путь.
+  (function adoptReportPath() {
+    var path = location.pathname || "";
+    var m = path.match(/\/app\/r\/([^/]+)\/?$/);
+    var q = "";
+    try { q = new URLSearchParams(location.search).get("r") || ""; } catch (e) { q = ""; }
+    var id = m ? decodeURIComponent(m[1]) : q;
+    if (!id) return;
+    var hash = "#/r/" + id;
+    if (location.hash !== hash) {
+      try { history.replaceState(null, "", (m ? path : "/app/r/" + encodeURIComponent(id)) + hash); }
+      catch (e) { location.hash = hash; }
+    }
+  })();
   SV.dispatch = function () {
     var path = SV.path();
     for (var i = 0; i < routes.length; i++) {

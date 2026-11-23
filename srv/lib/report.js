@@ -2,7 +2,7 @@
 // Названия полей у разных версий iiko немного отличаются, поэтому сначала читаем список полей сервера
 // и берём первое подходящее из кандидатов. Нет поля — раздел отчёта пропускается, а не падает весь отчёт.
 
-const { classification, floorOf, entityOf, paymentOf } = require('./sales-breakdown');
+const { classification, floorOf, entityOf, paymentOf, rulesFromPrefs } = require('./sales-breakdown');
 
 const CANDIDATES = {
   rev: ['DishDiscountSumInt', 'DishDiscountSum'],
@@ -61,6 +61,7 @@ function body(groups, aggs, filters) {
 }
 
 async function buildReport(iiko, day, sel, opts = {}) {
+  const rules = opts.rules || rulesFromPrefs(opts.prefs);
   const cols = await iiko.columns();
   const f = fields(cols);
   if (!f.rev) throw new Error('В iiko не нашлось поля выручки (DishDiscountSumInt) — нужен доступ к отчётам по продажам');
@@ -165,20 +166,33 @@ async function buildReport(iiko, day, sel, opts = {}) {
     if (reconciles(rows)) {
       const discounts = new Map();
       const discountDetails = new Map();
+      const discountByType = new Map();
       const nonFiscal = new Map();
       const byWaiter = new Map();
-      let eligibleGross = 0, eligibleNet = 0;
+      let eligibleGross = 0, eligibleNet = 0, promoGross = 0, promoNet = 0;
+      const receiptKey = (row) => String(row[f.receipt] || row[f.orderId] || '') || null;
+      const bumpCount = (entry, row, receipts) => {
+        const key = receiptKey(row);
+        if (key) {
+          if (!receipts.has(key)) { receipts.add(key); entry.count += 1; }
+        } else entry.count += 1;
+      };
       for (const row of rows) {
         const type = row[f.discType] || '';
         const payment = row[salesPay] || '';
-        const group = classification(type, payment, row[f.fiscal]);
+        const group = classification(type, payment, row[f.fiscal], rules);
         const waiter = String(row[f.waiter] || 'Без официанта');
         const gross = num(row[f.gross]), net = num(row[f.rev]);
-        if (group === 'promo') continue;
+        if (group === 'promo') {
+          promoGross += (net > 0 ? net : gross);
+          promoNet += net;
+          continue;
+        }
         if (group === 'nonFiscal') {
-          const name = classification(type) === 'nonFiscal' ? type : payment || type || 'Прочие';
-          const entry = nonFiscal.get(name) || { type: name, sum: 0 };
+          const name = classification(type, '', null, rules) === 'nonFiscal' ? (type || payment || 'Прочие') : (payment || type || 'Прочие');
+          const entry = nonFiscal.get(name) || { type: name, sum: 0, count: 0, receipts: new Set() };
           entry.sum += gross;
+          bumpCount(entry, row, entry.receipts);
           nonFiscal.set(name, entry);
           continue;
         }
@@ -194,6 +208,10 @@ async function buildReport(iiko, day, sel, opts = {}) {
           const entry = discounts.get(key) || { type: discountType, waiter, sum: 0 };
           entry.sum += gross - net;
           discounts.set(key, entry);
+          const byType = discountByType.get(discountType) || { type: discountType, sum: 0, count: 0, receipts: new Set() };
+          byType.sum += gross - net;
+          bumpCount(byType, row, byType.receipts);
+          discountByType.set(discountType, byType);
           if (detailed) {
             const detail = {
               type: discountType, waiter,
@@ -212,15 +230,33 @@ async function buildReport(iiko, day, sel, opts = {}) {
           }
         }
       }
+      const clean = (x) => { const { receipts, ...rest } = x; return { ...rest, sum: r2(x.sum), count: x.count || 0 }; };
       out.totals.discount = r2(Math.max(0, eligibleGross - eligibleNet));
       out.totals.discount_base = r2(eligibleGross);
-      out.non_fiscal = [...nonFiscal.values()].map((x) => ({ ...x, sum: r2(x.sum) })).sort((a, b) => b.sum - a.sum);
+      // Выручка = фискальные чеки (после скидки) + промо без оплаты. Нефискальные «за счёт заведения» не входят.
+      const fiscalRevenue = r2(eligibleNet + promoGross);
+      if (Math.abs(fiscalRevenue - tot.revenue) >= 0.01 || nonFiscal.size) {
+        out.totals.revenue_iiko = r2(tot.revenue);
+        out.totals.revenue = fiscalRevenue;
+        out.totals.avg_check = tot.orders ? r2(fiscalRevenue / tot.orders) : 0;
+        out.totals.avg_guest = tot.guests ? r2(fiscalRevenue / tot.guests) : 0;
+      }
+      out.non_fiscal = [...nonFiscal.values()].map(clean).sort((a, b) => b.sum - a.sum);
+      out.discount_by_type = [...discountByType.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum);
       out.discounts = [...discounts.values()].filter((x) => x.sum > 0)
         .sort((a, b) => b.sum - a.sum).slice(0, 15).map((x) => ({ ...x, sum: r2(x.sum) }));
       if (detailed) {
         out.discount_details = [...discountDetails.values()].filter((x) => x.sum > 0)
           .map((x) => ({ ...x, sum: r2(x.sum) }))
           .sort((a, b) => a.closed.localeCompare(b.closed) || a.receipt.localeCompare(b.receipt));
+      }
+      if (out.pay && out.pay.length) {
+        const classified = out.pay.map((x) => ({ ...x, group: classification('', x.name, null, rules) }));
+        const kept = classified.filter((x) => x.group !== 'nonFiscal');
+        if (kept.length !== classified.length) {
+          const shareBase = fiscalRevenue || kept.reduce((s, x) => s + x.sum, 0);
+          out.pay = kept.map((x) => ({ name: x.name, sum: x.sum, share: shareBase ? r2(x.sum / shareBase) : 0 }));
+        }
       }
       out.waiters.forEach((w) => {
         const x = byWaiter.get(w.name);
@@ -243,7 +279,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
     const rows = salesRows;
     const grouped = new Map();
     for (const row of rows) {
-      if (classification(row[f.discType], row[salesPay]) !== 'regular') continue;
+      if (classification(row[f.discType], row[salesPay], null, rules) === 'nonFiscal') continue;
       const floor = floorOf(row[f.floor], row[f.dept]);
       const entity = entityOf(row[f.entity]);
       const payment = paymentOf(row[salesPay]);
@@ -263,7 +299,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
     if (rows.length || !tot.gross) {
       const amounts = { '1': 0, '2': 0, unknown: 0 };
       for (const row of rows) {
-        if (classification(row[f.discType], row[salesPay]) !== 'promo') continue;
+        if (classification(row[f.discType], row[salesPay], null, rules) !== 'promo') continue;
         amounts[floorOf(row[f.floor], row[f.dept])] += num(row[f.gross]);
       }
       out.promo = Object.fromEntries(Object.entries(amounts).map(([floor, sum]) => [floor, r2(sum)]));

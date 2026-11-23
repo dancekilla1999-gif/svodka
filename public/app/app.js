@@ -10,7 +10,15 @@
   function onAuth(e) { if (e.hint === "auth") { setMe(null); SV.toast(e.message, "bad"); SV.go("/login"); } throw e; }
   function call(fn, args) { return SV.api(fn, Object.assign({ p_token: tok() }, args || {})).catch(onAuth); }
   function server(action, args) { return SV.fn(action, Object.assign({ token: tok() }, args || {})).catch(onAuth); }
-  function need() { if (!tok()) { SV.go("/login"); return false; } return true; }
+  function rememberReturn() {
+    try { var p = SV.path(); if (p && p.indexOf("/r/") === 0) sessionStorage.setItem("sv_return", p); } catch (e) {}
+  }
+  function takeReturn() {
+    var p = null;
+    try { p = sessionStorage.getItem("sv_return"); sessionStorage.removeItem("sv_return"); } catch (e) { p = null; }
+    return p && p.indexOf("/r/") === 0 ? p : "/home";
+  }
+  function need() { if (!tok()) { rememberReturn(); SV.go("/login"); return false; } return true; }
   function fail(e) { SV.toast(e.message || "Ошибка", "bad"); }
 
   // ------------------------------------------------------------ форматы
@@ -63,7 +71,7 @@
       h("form", { class: "card form", onsubmit: function (ev) {
         ev.preventDefault(); err.textContent = ""; btn.disabled = true;
         (mode === "login" ? SV.api("sv_login", { p_email: email.value, p_password: pass.value }) : SV.api("sv_register", { p_email: email.value, p_password: pass.value, p_name: name.value }))
-          .then(function (r) { if (r && r.error) throw new Error(r.error); setMe(r); SV.go("/home"); })
+          .then(function (r) { if (r && r.error) throw new Error(r.error); setMe(r); SV.go(takeReturn()); })
           .catch(function (e) { err.textContent = e.message; btn.disabled = false; });
       } },
         h("h1", { text: mode === "login" ? "Вход" : "Регистрация" }),
@@ -149,7 +157,8 @@
     call("sv_report_get", { p_id: Number(p.id) }).then(function (r) { SV.mount([topbar(), report(r)]); }, function (e) { SV.mount([topbar(), page(h("div", { class: "card" }, h("p", { text: e.message }), h("a", { class: "btn", href: "#/home", text: "К отчётам" })))]); });
   });
   function table(head, rows, numCols) {
-    return h("div", { class: "table-box" }, h("table", { class: "table", style: "min-width:520px" },
+    var compact = head.length <= 4;
+    return h("div", { class: "table-box" }, h("table", { class: "table" + (compact ? " compact" : ""), style: compact ? "min-width:0;width:100%" : "min-width:520px" },
       h("thead", null, h("tr", null, head.map(function (x, i) { return h("th", { class: numCols.indexOf(i) >= 0 ? "num" : null, text: x }); }))),
       h("tbody", null, rows.map(function (r) { return h("tr", null, r.map(function (x, i) { return h("td", { class: numCols.indexOf(i) >= 0 ? "num" : null }, x); })); }))));
   }
@@ -221,22 +230,44 @@
       (o.deletions || []).length ? h("section", { class: "form" }, h("h2", { text: "Удаления" }),
         table(["Позиция", "Сотрудник", "Тип", "Кол-во", "Сумма"], o.deletions.slice(0, 30).map(function (x) { return [x.dish, x.waiter, DEL_TYPES[x.type] || x.type, int(x.qty), money(x.sum)]; }), [3, 4])) : null,
       o.revenue_breakdown ? h("section", { class: "form" }, h("h2", { text: "Выручка по этажам и юрлицам" }), revenueTable(o.revenue_breakdown)) : null,
+      (function () {
+        var types = o.discount_by_type && o.discount_by_type.length ? o.discount_by_type : (function () {
+          var map = {}, list = [];
+          (o.discount_details || o.discounts || []).forEach(function (x) {
+            var k = x.type || "Тип не указан";
+            if (!map[k]) { map[k] = { type: k, sum: 0, count: 0 }; list.push(map[k]); }
+            map[k].sum += Number(x.sum || 0);
+            map[k].count += 1;
+          });
+          return list.sort(function (a, b) { return b.sum - a.sum; });
+        })();
+        if (!types.length && !(t.discount > 0)) return null;
+        return h("section", { class: "form", id: "discounts-by-type" }, h("h2", { text: "Скидки по типам" }),
+          h("p", { class: "small muted", text: "Сумма скидок только по фискальным чекам. Одинаковые типы (например, «Луна») собраны в одну строку." }),
+          types.length ? table(["Тип скидки", "Чеков", "Сумма"], types.map(function (x) {
+            return [x.type, x.count ? int(x.count) : "—", money(x.sum)];
+          }), [1, 2]) : h("p", { class: "small muted", text: t.discount == null ? "Данные недоступны." : "iiko не вернул разбивку по типам." }));
+      })(),
+      (o.discounts || []).length ? h("section", { class: "form" }, h("h2", { text: "Скидки по сотрудникам" }),
+        table(["Скидка", "Сотрудник", "Сумма"], o.discounts.map(function (x) { return [x.type, x.waiter, money(x.sum)]; }), [2])) : null,
+      (o.non_fiscal || []).length ? h("section", { class: "form", id: "non-fiscal" }, h("h2", { text: "Нефискальные (за счёт заведения)" }),
+        h("p", { class: "small muted", text: "Эти типы оплаты не входят в выручку и не считаются скидками. Список типов можно изменить в настройках." }),
+        table(["Тип оплаты", "Чеков", "Сумма"], o.non_fiscal.map(function (x) { return [x.type, x.count ? int(x.count) : "—", money(x.sum)]; }).concat([
+          ["ВСЕГО", int(o.non_fiscal.reduce(function (s, x) { return s + (Number(x.count) || 0); }, 0)) || "—", money(o.non_fiscal.reduce(function (s, x) { return s + (Number(x.sum) || 0); }, 0))]
+        ]), [1, 2])) : null,
       o.promo ? h("section", { class: "form" }, h("h2", { text: "Промо без оплаты" }),
-        table(["Этаж", "Сумма до скидок"], [
+        h("p", { class: "small muted", text: "Тип «ПромоБезОплаты» входит в выручку." }),
+        table(["Этаж", "Сумма"], [
           ["Промо без оплаты 1 этаж", money(o.promo["1"])],
           ["Промо без оплаты 2 этаж", money(o.promo["2"])],
-          ["ВСЕГО промо без оплаты 1 и 2 этаж", money(o.promo["1"] + o.promo["2"])]
+          ["ВСЕГО промо без оплаты", money((o.promo["1"] || 0) + (o.promo["2"] || 0) + (o.promo.unknown || 0))]
         ].concat(o.promo.unknown ? [["Этаж не указан", money(o.promo.unknown)]] : []), [1])) : null,
-      (o.non_fiscal || []).length ? h("section", { class: "form" }, h("h2", { text: "Нефискальные чеки" }),
-        table(["Тип", "Сумма до скидок"], o.non_fiscal.map(function (x) { return [x.type, money(x.sum)]; }), [1])) : null,
       o.discount_details ? h("section", { class: "form", id: "discount-details" }, h("h2", { text: "Реестр скидок по чекам" }),
-        h("p", { class: "small muted", text: "Время закрытия чека по iiko. Гость и авторизация отображаются, когда эти сведения есть в отчёте iiko." }),
+        h("p", { class: "small muted", text: "Подробности для разбора в кабинете. В Telegram уходит только сумма по каждому типу, без списка чеков." }),
         o.discount_details.length ? table(["Закрытие чека", "Чек", "Зал / стол", "Гость / владелец карты", "Вид скидки", "Сотрудник", "Авторизация", "Сумма"], o.discount_details.map(function (x) {
           return [x.closed ? x.closed.replace("T", " ").slice(0, 16) : "—", x.receipt || x.order_id || "—", [x.room, x.table ? "стол " + x.table : ""].filter(Boolean).join(" · ") || "—", x.guest || "Не указан", x.type, x.waiter, x.authorized_by || "—", money(x.sum)];
         }), [7]) : h("p", { class: "small muted", text: "Скидок по чекам нет." })) :
         t.discount > 0 ? h("section", { class: "form" }, h("h2", { text: "Реестр скидок по чекам" }), h("p", { class: "small muted", text: "Детализация по чекам не получена. Для старого отчёта сформируйте его повторно." })) : null,
-      (o.discounts || []).length ? h("section", { class: "form" }, h("h2", { text: "Скидки по типам" }),
-        table(["Скидка", "Сотрудник", "Сумма"], o.discounts.map(function (x) { return [x.type, x.waiter, money(x.sum)]; }), [2])) : null,
       h("div", { class: "card row no-print", style: "justify-content:space-between" }, h("div", null, h("b", { text: "Что говорят агенты" }), h("p", { class: "small muted", text: "Закупки и цены, прибыль, персонал и меню — в разделе «Агенты». Там же можно спросить управляющего." })), h("a", { class: "btn small primary", href: "#/agents", text: "Открыть агентов" })),
       (o.fields_missing || []).length || (o.errors || []).length ? h("p", { class: "small muted", text: "Часть разделов недоступна на вашем сервере iiko" + ((o.errors || []).length ? ": " + o.errors[0] : "") + ". Проверьте права пользователя на отчёты по продажам." }) : null,
       h("p", { class: "small muted", text: "Источник — OLAP-отчёт продаж iiko за учётный день " + r.day + ". Выручка — со скидками, без удалённых позиций. Сравнение — с тем же днём недели неделю назад." }));
@@ -309,7 +340,14 @@
   SV.route("/settings", function () {
     if (!need()) return;
     SV.mount([topbar(), SV.loading()]);
-    call("sv_me").then(function (d) { SV.mount([topbar(), settings(d)]); }, fail);
+    Promise.all([
+      call("sv_me"),
+      call("sv_agent", { p_op: "home", p_args: {} }).catch(function () { return {}; })
+    ]).then(function (arr) {
+      var d = arr[0] || {};
+      d.prefs = (arr[1] && arr[1].prefs) || d.prefs || {};
+      SV.mount([topbar(), settings(d)]);
+    }, fail);
   });
   function settings(d) {
     var c = d.conn;
@@ -360,6 +398,33 @@
               call("sv_conn_remove").then(function () { SV.go("/home"); }, fail);
             }, true);
           } }) : null)) : null,
+      (function () {
+        var prefs = d.prefs || {};
+        var defNon = "Андрей Михайлович\nАлексей Р.Ш.\nРасим\nПредставительская оплата\nАнтон бухгалтер\nНадежда\nМаркетинг\nЗахар\nПерсонал\nПромокод Smoke\nСъёмка СММ";
+        var defPromo = "ПромоБезОплаты";
+        function asText(v, fallback) {
+          if (Array.isArray(v) && v.length) return v.join("\n");
+          if (typeof v === "string" && v.trim()) return v;
+          return fallback;
+        }
+        var non = h("textarea", { rows: 8, style: "width:100%;min-height:8.5rem" });
+        non.value = asText(prefs.non_fiscal_pay_types, defNon);
+        var promo = h("textarea", { rows: 3, style: "width:100%;min-height:4rem" });
+        promo.value = asText(prefs.promo_pay_types, defPromo);
+        var btn = h("button", { class: "btn primary", type: "button", text: "Сохранить типы оплат", onclick: function () {
+          btn.disabled = true;
+          call("sv_agent", { p_op: "prefs_save", p_args: {
+            non_fiscal_pay_types: non.value.split(/\n|,/).map(function (s) { return s.trim(); }).filter(Boolean),
+            promo_pay_types: promo.value.split(/\n|,/).map(function (s) { return s.trim(); }).filter(Boolean)
+          } }).then(function () { btn.disabled = false; SV.toast("Сохранено. Новый отчёт построится уже по этим правилам."); }, function (e) { btn.disabled = false; fail(e); });
+        } });
+        return h("section", { class: "card form", style: "max-width:720px" },
+          h("h2", { text: "Типы оплаты iiko" }),
+          h("p", { class: "small muted", text: "Сводка смотрит на название типа оплаты, а не на номер стола. Нефискальные «за счёт заведения» не входят в выручку и скидки; «промо без оплаты» входит в выручку." }),
+          h("label", null, "Нефискальные (за счёт заведения) — по одному типу в строке", non),
+          h("label", null, "Промо, которое входит в выручку", promo),
+          btn);
+      })(),
       h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Тариф" }),
         h("p", { class: "muted small", text: "Пробный период — 7 дней, все функции и все агенты открыты. «Смена» 1 990 ₽/мес — отчёт по смене, агенты «Смена» и «Закупки»; «Контроль» 2 990 ₽/мес — вся команда агентов: финансы и прибыль, персонал, меню, ИИ-управляющий в Telegram; «Сеть» 4 990 ₽/мес — до 5 точек." })),
       h("section", { class: "card form", style: "max-width:720px" }, h("button", { class: "btn ghost", text: "Выйти из аккаунта", onclick: function () {
