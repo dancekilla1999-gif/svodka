@@ -6,6 +6,15 @@ function delta(a, b) { if (!b) return ''; const d = (a / b - 1) * 100; return ` 
 function dayRu(iso) { const d = new Date(iso + 'T12:00:00Z'); return d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', timeZone: 'UTC' }); }
 function sum(rows, field = 'sum') { return (rows || []).reduce((s, x) => s + Number(x[field] || 0), 0); }
 function percent(a, b) { return b > 0 ? ` · ${pct1(a / b * 100)}` : ''; }
+function plural(n, one, few, many) {
+  const num = Math.abs(Number(n)) || 0;
+  const n100 = num % 100, n10 = num % 10;
+  if (n100 >= 11 && n100 <= 14) return many;
+  if (n10 === 1) return one;
+  if (n10 >= 2 && n10 <= 4) return few;
+  return many;
+}
+function cheques(n) { return `${n} ${plural(n, 'чек', 'чека', 'чеков')}`; }
 function label(value, max = 80) { return esc(String(value || '').slice(0, max)); }
 function closedLabel(value) {
   if (!value) return 'время не указано';
@@ -56,10 +65,10 @@ function reportText(o, link, extra = '') {
 
   const base = t.discount_base ?? t.gross;
   L.push('', '<b>🏷 Скидки</b> <i>(только фискальные чеки)</i>');
-  L.push(t.discount == null ? 'Данные недоступны' : `Всего: <b>${money(t.discount)}</b>${percent(t.discount, base)}`);
+  L.push(t.discount == null ? 'Данные недоступны' : `Всего: <b>${money(t.discount)}</b>${percent(t.discount, base)}${percent(t.discount, base) ? ' от суммы до скидок' : ''}`);
   const types = discountTypes(o);
   types.slice(0, 8).forEach((x) => {
-    const n = x.count ? ` · ${x.count} ${x.count === 1 ? 'чек' : x.count < 5 ? 'чека' : 'чеков'}` : '';
+    const n = x.count ? ` · ${cheques(x.count)}` : '';
     L.push(`• ${label(x.type, 40)}: ${money(x.sum)}${n}`);
   });
   if (types.length > 8) L.push(`• Остальные типы: ${money(sum(types.slice(8)))}`);
@@ -71,7 +80,7 @@ function reportText(o, link, extra = '') {
   L.push('', '<b>🧾 Нефискальные (за счёт заведения)</b>');
   if (!nonFiscal.length) L.push('Нет');
   else {
-    L.push(`Всего: <b>${money(nfSum)}</b>${nfCount ? ` · ${nfCount} ${nfCount === 1 ? 'чек' : nfCount < 5 ? 'чека' : 'чеков'}` : ''}`);
+    L.push(`Всего: <b>${money(nfSum)}</b>${nfCount ? ` · ${cheques(nfCount)}` : ''}`);
     L.push('<i>Не входят в выручку и не считаются скидками</i>');
     nonFiscal.forEach((x) => {
       const n = x.count ? ` · ${x.count}` : '';
@@ -81,7 +90,7 @@ function reportText(o, link, extra = '') {
 
   if (o.unprinted && (o.unprinted.sum || o.unprinted.count)) {
     const n = o.unprinted.count || 0;
-    L.push(`без фискального чека, не из списка: ${money(o.unprinted.sum)} · ${n} чеков`);
+    L.push('', `Без фискального чека, не из списка: ${money(o.unprinted.sum)} · ${cheques(n)} <i>(в выручке, проверьте тип оплаты)</i>`);
   }
 
   const promoRows = o.promo_items && o.promo_items.length ? o.promo_items : (o.promo ? [
@@ -145,4 +154,4 @@ async function tgSend(chatId, text) {
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }), signal: AbortSignal.timeout(15000) });
   return r.ok;
 }
-module.exports = { reportText, discountRegistryText, tgSend, money, discountTypes, percent, pct1 };
+module.exports = { reportText, discountRegistryText, tgSend, money, discountTypes, percent, pct1, plural };

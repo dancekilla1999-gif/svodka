@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { classification, rulesFromPrefs, DEFAULT_PROMO, DEFAULT_NON_FISCAL, isUnprintedCheque, normalize } = require('./sales-breakdown');
 const { demoReport } = require('./demo');
-const { reportText, discountRegistryText, discountTypes, percent, pct1 } = require('./text');
+const { reportText, discountRegistryText, discountTypes, percent, pct1, plural } = require('./text');
 
 function testClassification() {
   const r = rulesFromPrefs();
@@ -36,6 +36,16 @@ function testPercents() {
   assert.equal(percent(34, 100), ' · 34,0%');
 }
 
+function testPlural() {
+  const form = (n) => plural(n, 'чек', 'чека', 'чеков');
+  assert.equal(form(1), 'чек');
+  assert.equal(form(2), 'чека');
+  assert.equal(form(5), 'чеков');
+  assert.equal(form(11), 'чеков');
+  assert.equal(form(21), 'чек');
+  assert.equal(form(22), 'чека');
+}
+
 function testDigest() {
   const day = '2026-11-20';
   const o = demoReport(day);
@@ -58,7 +68,15 @@ function testDigest() {
   assert.match(text, /Стол 27 · ПромоБезОплаты/);
   assert.doesNotMatch(text, /1 этаж: /);
   assert.match(text, /в выручке/);
-  assert.match(text, /без фискального чека, не из списка/);
+  assert.match(text, /от суммы до скидок/);
+  assert.match(text, /Без фискального чека, не из списка:[\s\S]*2 чека[\s\S]*в выручке, проверьте тип оплаты/);
+  assert.match(text, /\n\nБез фискального чека, не из списка:/);
+  const unp = text.indexOf('Без фискального чека');
+  const promo = text.indexOf('Промо без оплаты');
+  const nf = text.indexOf('Нефискальные');
+  assert.ok(nf >= 0 && unp > nf && promo > unp, 'строка без чека идёт после нефискальных и перед промо');
+  assert.doesNotMatch(text, /2 чеков/);
+
   assert.match(text, /\/app\/r\/12345/);
   assert.doesNotMatch(text, /#\/r\//);
   assert.doesNotMatch(text, /чек №1800/);
@@ -84,6 +102,7 @@ function testLunaExample() {
 
 testClassification();
 testPercents();
+testPlural();
 testDigest();
 testLinkAndMoney();
 testLunaExample();

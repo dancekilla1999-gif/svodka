@@ -388,7 +388,7 @@ function flags(o) {
   if (noWo >= 1000) out.push({ level: 'warn', text: `Удалено без списания на ${money(noWo)} — проверьте причины` });
   const discountBase = t.discount_base ?? t.gross;
   const share = discountBase > 0 ? t.discount / discountBase : 0;
-  if (share >= 0.12) out.push({ level: 'warn', text: `Скидки — ${pct(share)} от суммы чеков (${money(t.discount)})` });
+  if (share >= 0.12) out.push({ level: 'warn', text: `Скидки — ${pct(share)} от суммы до скидок (${money(t.discount)})` });
   const ws = o.waiters.filter((w) => w.revenue > 0);
   ws.forEach((w) => {
     if (w.discount >= 1000 && w.discount_share >= Math.max(0.1, share * 2)) out.push({ level: 'bad', text: `${w.name}: скидки ${pct(w.discount_share)} от его чеков (${money(w.discount)}) — заметно выше среднего` });

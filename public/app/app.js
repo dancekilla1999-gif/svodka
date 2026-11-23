@@ -145,7 +145,7 @@
           h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Отклонения" }), h("span", { class: "k-val", text: String(last.flags) }), h("span", { class: "k-sub", text: last.flags ? "есть на что посмотреть" : "всё спокойно" })))) : null,
       reps.length ? h("section", { class: "rep-list" }, h("h2", { text: "Все отчёты" }), reps.map(function (r) {
         return h("a", { class: "rep", href: "#/r/" + r.id },
-          h("b", { text: dayShort(r.day) }), h("span", { class: "hide-m", text: money(r.revenue) }), h("span", { class: "hide-m muted", text: int(r.orders) + " чеков · " + money(r.avg) }),
+          h("b", { text: dayShort(r.day) }), h("span", { class: "hide-m", text: money(r.revenue) }), h("span", { class: "hide-m muted", text: int(r.orders) + " " + SV.plural(r.orders, "чек", "чека", "чеков") + " · " + money(r.avg) }),
           r.flags ? h("span", { class: "pill bad", text: r.flags + " " + SV.plural(r.flags, "отклонение", "отклонения", "отклонений") }) : h("span", { class: "pill ok", text: "ок" }));
       })) : h("p", { class: "muted", text: "Отчётов пока нет — сформируйте первый за вчерашний день." }));
   }
@@ -203,7 +203,7 @@
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Чеков" }), h("span", { class: "k-val", text: int(t.orders) }), h("span", { class: "k-sub", text: (t.guests_include_non_fiscal ? "включая нефискальные" : "фискальные и промо") + (p.orders ? " · было " + int(p.orders) : "") })),
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Средний чек" }), h("span", { class: "k-val", text: money(t.avg_check) }), h("span", { class: "k-sub" }, delta(t.avg_check, p.avg_check), p.avg_check ? " · было " + money(p.avg_check) : "")),
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Гостей" }), h("span", { class: "k-val", text: int(t.guests) }), h("span", { class: "k-sub", text: (t.guests_include_non_fiscal ? "включая нефискальные · " : "") + "на гостя " + money(t.avg_guest) })),
-        h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Скидки" }), h("span", { class: "k-val", text: t.discount == null ? "—" : money(t.discount) }), h("span", { class: "k-sub", text: t.discount == null ? "Данные iiko недоступны" : pct(discShare) + " от суммы чеков" })),
+        h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Скидки" }), h("span", { class: "k-val", text: t.discount == null ? "—" : money(t.discount) }), h("span", { class: "k-sub", text: t.discount == null ? "Данные iiko недоступны" : pct(discShare) + " от суммы до скидок" })),
         h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Удаления" }), h("span", { class: "k-val", text: money(t.deleted_sum) }), h("span", { class: "k-sub", text: int(t.deleted_qty) + " позиций" })),
         t.cost != null ? h("div", { class: "kpi" }, h("span", { class: "k-label", text: "Себестоимость" }), h("span", { class: "k-val", text: money(t.cost) }), h("span", { class: "k-sub", text: "фудкост " + pct(t.revenue ? t.cost / t.revenue : 0) })) : null,
         o.profit && o.profit.profit != null && o.profit.has_expenses ? h("div", { class: "kpi main" }, h("span", { class: "k-label", text: "Прибыль смены" }), h("span", { class: "k-val", text: money(o.profit.profit) }), h("span", { class: "k-sub", text: "после доли расходов " + money(o.profit.expenses) }))
@@ -217,7 +217,7 @@
           return h("div", { class: "bar" }, h("span", { class: "name", text: x.name }), h("span", { class: "track" }, h("i", { style: "width:" + Math.round(x.sum / maxPay * 100) + "%" })), h("span", { class: "v", text: money(x.sum) + " · " + pct(x.share) }));
         }))) : null,
         (o.hours || []).length ? h("section", { class: "card" }, h("h2", { text: "Выручка по часам" }), h("div", { class: "hours" }, o.hours.map(function (x) {
-          return h("div", { class: "h", title: x.hour + ":00 — " + money(x.revenue) + ", чеков: " + x.orders }, h("i", { style: "height:" + Math.max(2, Math.round(x.revenue / maxH * 110)) + "px" }), String(x.hour));
+          return h("div", { class: "h", title: x.hour + ":00 — " + money(x.revenue) + ", " + x.orders + " " + SV.plural(x.orders, "чек", "чека", "чеков") }, h("i", { style: "height:" + Math.max(2, Math.round(x.revenue / maxH * 110)) + "px" }), String(x.hour));
         }))) : null),
       (o.by_dept || []).length > 1 ? h("section", { class: "form" }, h("h2", { text: "По подразделениям" }),
         table(["Подразделение", "Выручка", "Чеков", "Гостей", "Средний чек"], o.by_dept.map(function (x) { return [x.name, money(x.revenue), int(x.orders), int(x.guests), money(x.avg_check)]; }), [1, 2, 3, 4])) : null,
@@ -255,7 +255,7 @@
         table(["Тип оплаты", "Чеков", "Сумма"], o.non_fiscal.map(function (x) { return [x.type, x.count ? int(x.count) : "—", money(x.sum)]; }).concat([
           ["ВСЕГО", int(o.non_fiscal.reduce(function (s, x) { return s + (Number(x.count) || 0); }, 0)) || "—", money(o.non_fiscal.reduce(function (s, x) { return s + (Number(x.sum) || 0); }, 0))]
         ]), [1, 2])) : null,
-      (o.unprinted && (o.unprinted.sum || o.unprinted.count)) ? h("p", { class: "small muted", text: "без фискального чека, не из списка: " + money(o.unprinted.sum) + " · " + int(o.unprinted.count || 0) + " чеков. Эти суммы входят в выручку." }) : null,
+      (o.unprinted && (o.unprinted.sum || o.unprinted.count)) ? h("p", { class: "small muted", text: "Без фискального чека, не из списка: " + money(o.unprinted.sum) + " · " + int(o.unprinted.count || 0) + " " + SV.plural(o.unprinted.count || 0, "чек", "чека", "чеков") + " (в выручке, проверьте тип оплаты)" }) : null,
       (function () {
         var items = o.promo_items && o.promo_items.length ? o.promo_items : (o.promo ? [
           o.promo["1"] ? { label: "1 этаж", sum: o.promo["1"] } : null,
