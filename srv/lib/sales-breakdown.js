@@ -1,13 +1,21 @@
 const normalize = (value) => String(value ?? '').normalize('NFKC').toLowerCase()
-  .replace(/ё/g, 'е').replace(/[^а-яa-z0-9]/g, '');
+  .replace(/ё/g, 'е')
+  .replace(/^[\s./-]*\d+[\s./-]*/, '')
+  .replace(/[^а-яa-z0-9]/g, '');
 
-// Значения по умолчанию — по типам оплаты iiko, не по номерам столов.
+// Значения по умолчанию — 9 типов Егора, в двух написаниях: с номером из iiko и без.
 // Их можно переопределить в настройках кабинета (prefs.promo_pay_types / non_fiscal_pay_types).
 const DEFAULT_PROMO = ['ПромоБезОплаты'];
 const DEFAULT_NON_FISCAL = [
-  'Алексей Р.Ш.', 'Андрей Михайлович', 'Антон бухгалтер', 'Захар', 'Маркетинг',
-  'Надежда', 'Персонал', 'Представитьельская оплата', 'Представительская оплата',
-  'Промокод Smoke', 'Расим', 'Сьёмка СММ', 'Съёмка СММ'
+  'Андрей Михайлович', '334 Андрей Михайлович',
+  'Алексей Р.Ш.', '335 Алексей Р.Ш.',
+  'Расим', '338 Расим',
+  'Представительская оплата', '49 Представительская оплата',
+  'Антон бухгалтер', '19 Антон бухгалтер',
+  'Надежда', '336 Надежда',
+  'Маркетинг', '20 Маркетинг',
+  'Захар', '88 Захар',
+  'Персонал', '88 Персонал'
 ];
 
 function parseList(value, fallback) {
@@ -25,13 +33,18 @@ function rulesFromPrefs(prefs) {
   };
 }
 
+function isUnprintedCheque(fiscal) {
+  if (fiscal == null || fiscal === '') return false;
+  if (fiscal === false || fiscal === 0) return true;
+  const s = String(fiscal).normalize('NFKC').toLowerCase().replace(/ё/g, 'е').trim();
+  return /^(false|0|no|нет|nonfiscal|нефискальный)$/.test(s);
+}
+
 function classification(type, payment, fiscal, rules) {
   const r = rules || rulesFromPrefs();
   const names = [normalize(type), normalize(payment)];
   if (names.some((name) => r.promo.has(name))) return 'promo';
-  if (names.some((name) => r.nonFiscal.has(name)) || /^(false|no|нет|nonfiscal|нефискальный)$/.test(normalize(fiscal))) {
-    return 'nonFiscal';
-  }
+  if (names.some((name) => r.nonFiscal.has(name))) return 'nonFiscal';
   return 'regular';
 }
 
@@ -62,6 +75,6 @@ function paymentOf(name) {
 }
 
 module.exports = {
-  classification, floorOf, entityOf, paymentOf,
+  classification, floorOf, entityOf, paymentOf, isUnprintedCheque,
   rulesFromPrefs, normalize, DEFAULT_PROMO, DEFAULT_NON_FISCAL
 };

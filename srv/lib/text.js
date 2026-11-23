@@ -1,10 +1,11 @@
 // Короткое сообщение в Telegram по отчёту: выжимка, без списка чеков.
 function money(n) { return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n || 0)) + ' ₽'; }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-function delta(a, b) { if (!b) return ''; const d = Math.round((a / b - 1) * 100); return ` (${d >= 0 ? '+' : ''}${d}% к прошлой неделе)`; }
+function pct1(n) { return (Math.round(Number(n) * 10) / 10).toFixed(1).replace('.', ',') + '%'; }
+function delta(a, b) { if (!b) return ''; const d = (a / b - 1) * 100; return ` (${d >= 0 ? '+' : ''}${pct1(d)} к прошлой неделе)`; }
 function dayRu(iso) { const d = new Date(iso + 'T12:00:00Z'); return d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', timeZone: 'UTC' }); }
 function sum(rows, field = 'sum') { return (rows || []).reduce((s, x) => s + Number(x[field] || 0), 0); }
-function percent(a, b) { return b > 0 ? ` · ${Math.round(a / b * 100)}%` : ''; }
+function percent(a, b) { return b > 0 ? ` · ${pct1(a / b * 100)}` : ''; }
 function label(value, max = 80) { return esc(String(value || '').slice(0, max)); }
 function closedLabel(value) {
   if (!value) return 'время не указано';
@@ -41,8 +42,9 @@ function reportText(o, link, extra = '') {
   if (o.partial) L.push('<i>Смена ещё идёт — цифры на текущий момент</i>');
 
   L.push('', `Выручка: <b>${money(t.revenue)}</b>${p.revenue ? delta(t.revenue, p.revenue) : ''}`);
-  L.push(`Чеков: ${t.orders}  ·  Гостей: ${t.guests}`);
-  L.push(`Средний чек: ${money(t.avg_check)}  ·  На гостя: ${money(t.avg_guest)}`);
+  const guestNote = t.guests_include_non_fiscal ? ' <i>(включая нефискальные)</i>' : '';
+  L.push(`Чеков: ${t.orders}  ·  Гостей: ${t.guests}${guestNote}`);
+  L.push(`Средний чек: ${money(t.avg_check)}  ·  На гостя: ${money(t.avg_guest)}${guestNote}`);
   if (m.cost != null) L.push(`Себестоимость: ${money(m.cost)}${percent(m.cost, t.revenue)}`);
   if (m.has_expenses && m.profit != null) {
     L.push(`Расходы смены: ${money(m.expenses)}`);
@@ -77,12 +79,23 @@ function reportText(o, link, extra = '') {
     });
   }
 
-  if (o.promo) {
-    const promoSum = (o.promo['1'] || 0) + (o.promo['2'] || 0) + (o.promo.unknown || 0);
+  if (o.unprinted && (o.unprinted.sum || o.unprinted.count)) {
+    const n = o.unprinted.count || 0;
+    L.push(`без фискального чека, не из списка: ${money(o.unprinted.sum)} · ${n} чеков`);
+  }
+
+  const promoRows = o.promo_items && o.promo_items.length ? o.promo_items : (o.promo ? [
+    o.promo['1'] && { label: '1 этаж', sum: o.promo['1'] },
+    o.promo['2'] && { label: '2 этаж', sum: o.promo['2'] },
+    o.promo.unknown && { label: 'Этаж не указан', sum: o.promo.unknown }
+  ].filter(Boolean) : []);
+  if (promoRows.length || o.promo_total) {
+    const promoSum = o.promo_total != null ? o.promo_total : sum(promoRows);
     L.push('', `Промо без оплаты <i>(в выручке)</i>: <b>${money(promoSum)}</b>`);
-    if (o.promo['1']) L.push(`• 1 этаж: ${money(o.promo['1'])}`);
-    if (o.promo['2']) L.push(`• 2 этаж: ${money(o.promo['2'])}`);
-    if (o.promo.unknown) L.push(`• Этаж не указан: ${money(o.promo.unknown)}`);
+    promoRows.forEach((x) => {
+      const n = x.count ? ` · ${x.count}` : '';
+      L.push(`• ${label(x.label || x.type, 60)}: ${money(x.sum)}${n}`);
+    });
   }
 
   L.push('', `Удаления: ${money(t.deleted_sum)}${percent(t.deleted_sum, t.revenue)}`);
@@ -132,4 +145,4 @@ async function tgSend(chatId, text) {
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }), signal: AbortSignal.timeout(15000) });
   return r.ok;
 }
-module.exports = { reportText, discountRegistryText, tgSend, money, discountTypes };
+module.exports = { reportText, discountRegistryText, tgSend, money, discountTypes, percent, pct1 };

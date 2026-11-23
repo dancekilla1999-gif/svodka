@@ -2,7 +2,7 @@
 // Названия полей у разных версий iiko немного отличаются, поэтому сначала читаем список полей сервера
 // и берём первое подходящее из кандидатов. Нет поля — раздел отчёта пропускается, а не падает весь отчёт.
 
-const { classification, floorOf, entityOf, paymentOf, rulesFromPrefs } = require('./sales-breakdown');
+const { classification, floorOf, entityOf, paymentOf, rulesFromPrefs, isUnprintedCheque } = require('./sales-breakdown');
 
 const CANDIDATES = {
   rev: ['DishDiscountSumInt', 'DishDiscountSum'],
@@ -168,14 +168,29 @@ async function buildReport(iiko, day, sel, opts = {}) {
       const discountDetails = new Map();
       const discountByType = new Map();
       const nonFiscal = new Map();
+      const promoItems = new Map();
       const byWaiter = new Map();
+      const saleReceipts = new Set();
+      const saleGuestsByReceipt = new Map();
+      let saleOrdersAgg = 0, saleGuestsAgg = 0;
       let eligibleGross = 0, eligibleNet = 0, promoGross = 0, promoNet = 0;
+      const unprinted = { sum: 0, count: 0, receipts: new Set() };
       const receiptKey = (row) => String(row[f.receipt] || row[f.orderId] || '') || null;
       const bumpCount = (entry, row, receipts) => {
         const key = receiptKey(row);
         if (key) {
           if (!receipts.has(key)) { receipts.add(key); entry.count += 1; }
         } else entry.count += 1;
+      };
+      const countSale = (row) => {
+        const key = receiptKey(row);
+        if (key) saleReceipts.add(key);
+        if (f.orders) saleOrdersAgg += num(row[f.orders]);
+        if (f.guests) {
+          const g = num(row[f.guests]);
+          if (key) { if (!saleGuestsByReceipt.has(key)) saleGuestsByReceipt.set(key, g); }
+          else saleGuestsAgg += g;
+        }
       };
       for (const row of rows) {
         const type = row[f.discType] || '';
@@ -186,6 +201,14 @@ async function buildReport(iiko, day, sel, opts = {}) {
         if (group === 'promo') {
           promoGross += (net > 0 ? net : gross);
           promoNet += net;
+          countSale(row);
+          const payName = String(payment || type || 'ПромоБезОплаты').trim() || 'ПромоБезОплаты';
+          const table = String(row[f.table] ?? '').trim();
+          const label = table ? `Стол ${table} · ${payName}` : payName;
+          const entry = promoItems.get(label) || { label, table, type: payName, sum: 0, count: 0, receipts: new Set() };
+          entry.sum += (net > 0 ? net : gross);
+          bumpCount(entry, row, entry.receipts);
+          promoItems.set(label, entry);
           continue;
         }
         if (group === 'nonFiscal') {
@@ -195,6 +218,11 @@ async function buildReport(iiko, day, sel, opts = {}) {
           bumpCount(entry, row, entry.receipts);
           nonFiscal.set(name, entry);
           continue;
+        }
+        countSale(row);
+        if (isUnprintedCheque(row[f.fiscal])) {
+          unprinted.sum += net;
+          bumpCount(unprinted, row, unprinted.receipts);
         }
         eligibleGross += gross;
         eligibleNet += net;
@@ -235,13 +263,33 @@ async function buildReport(iiko, day, sel, opts = {}) {
       out.totals.discount_base = r2(eligibleGross);
       // Выручка = фискальные чеки (после скидки) + промо без оплаты. Нефискальные «за счёт заведения» не входят.
       const fiscalRevenue = r2(eligibleNet + promoGross);
-      if (Math.abs(fiscalRevenue - tot.revenue) >= 0.01 || nonFiscal.size) {
+      const nfCount = [...nonFiscal.values()].reduce((s, x) => s + (x.count || 0), 0);
+      const saleGuests = saleGuestsByReceipt.size
+        ? [...saleGuestsByReceipt.values()].reduce((s, g) => s + g, 0)
+        : saleGuestsAgg;
+      const saleOrders = saleReceipts.size || saleOrdersAgg || (tot.orders && nfCount ? Math.max(0, tot.orders - nfCount) : 0);
+      if (Math.abs(fiscalRevenue - tot.revenue) >= 0.01 || nonFiscal.size || saleOrders) {
         out.totals.revenue_iiko = r2(tot.revenue);
         out.totals.revenue = fiscalRevenue;
-        out.totals.avg_check = tot.orders ? r2(fiscalRevenue / tot.orders) : 0;
+      }
+      if (saleOrders) {
+        out.totals.orders = saleOrders;
+        out.totals.avg_check = r2(fiscalRevenue / saleOrders);
+      } else if (tot.orders) {
+        out.totals.avg_check = r2(fiscalRevenue / tot.orders);
+      }
+      if (saleGuests) {
+        out.totals.guests = saleGuests;
+        out.totals.avg_guest = r2(fiscalRevenue / saleGuests);
+        out.totals.guests_include_non_fiscal = false;
+      } else {
         out.totals.avg_guest = tot.guests ? r2(fiscalRevenue / tot.guests) : 0;
+        out.totals.guests_include_non_fiscal = true;
       }
       out.non_fiscal = [...nonFiscal.values()].map(clean).sort((a, b) => b.sum - a.sum);
+      out.promo_items = [...promoItems.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum);
+      out.promo_total = r2(out.promo_items.reduce((s, x) => s + x.sum, 0));
+      if (unprinted.count || unprinted.sum) out.unprinted = { sum: r2(unprinted.sum), count: unprinted.count };
       out.discount_by_type = [...discountByType.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum);
       out.discounts = [...discounts.values()].filter((x) => x.sum > 0)
         .sort((a, b) => b.sum - a.sum).slice(0, 15).map((x) => ({ ...x, sum: r2(x.sum) }));
@@ -294,15 +342,22 @@ async function buildReport(iiko, day, sel, opts = {}) {
       out.revenue_breakdown = [...grouped.values()].map((x) => ({ ...x, sum: r2(x.sum) }));
     }
   }
-  if (salesMatch && f.gross && Math.abs(salesRows.reduce((sum, row) => sum + num(row[f.gross]), 0) - tot.gross) < 0.02) {
+  if ((!out.promo_items || !out.promo_items.length) && salesMatch && f.gross && Math.abs(salesRows.reduce((sum, row) => sum + num(row[f.gross]), 0) - tot.gross) < 0.02) {
     const rows = salesRows;
     if (rows.length || !tot.gross) {
-      const amounts = { '1': 0, '2': 0, unknown: 0 };
+      const items = new Map();
       for (const row of rows) {
         if (classification(row[f.discType], row[salesPay], null, rules) !== 'promo') continue;
-        amounts[floorOf(row[f.floor], row[f.dept])] += num(row[f.gross]);
+        const payName = String(row[salesPay] || row[f.discType] || 'ПромоБезОплаты').trim() || 'ПромоБезОплаты';
+        const table = String(row[f.table] ?? '').trim();
+        const label = table ? `Стол ${table} · ${payName}` : payName;
+        const entry = items.get(label) || { label, table, type: payName, sum: 0, count: 0 };
+        entry.sum += num(row[f.gross]);
+        entry.count += 1;
+        items.set(label, entry);
       }
-      out.promo = Object.fromEntries(Object.entries(amounts).map(([floor, sum]) => [floor, r2(sum)]));
+      out.promo_items = [...items.values()].map((x) => ({ ...x, sum: r2(x.sum) })).sort((a, b) => b.sum - a.sum);
+      out.promo_total = r2(out.promo_items.reduce((s, x) => s + x.sum, 0));
     }
   }
 
@@ -317,7 +372,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
 }
 
 function money(n) { return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n)) + ' ₽'; }
-function pct(x) { return Math.round(x * 100) + '%'; }
+function pct(x) { return (Math.round(Number(x) * 1000) / 10).toFixed(1).replace('.', ',') + '%'; }
 
 // правила «на что посмотреть собственнику»
 function flags(o) {
