@@ -161,6 +161,7 @@ ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .kpi.main { background: var(--green); color: var(--on-green); border-color: transparent; }
 .kpi.main .k-label, .kpi.main .k-sub { color: rgba(255,255,255,.75); }
 .up { color: var(--good); font-weight: 600; } .down { color: var(--bad); font-weight: 600; }
+.warn-text { color: var(--amber); font-weight: 600; }
 .kpi.main .up { color: #8BE3B5; } .kpi.main .down { color: #FFB4AA; }
 .flags { display: grid; gap: 8px; }
 .flag { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; background: var(--warn-bg); border: 1px solid var(--warn-line); }
@@ -242,4 +243,7 @@ code.kbd { background: var(--bg); border: 1px solid var(--line); border-radius: 
 @media print { .chat, .topnav { display: none !important; } }
 .page > *, .two > *, .matrix > *, .agent-grid > * { min-width: 0; }
 .table-box { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table.compact { width: 100%; min-width: 0; }
+@media (max-width: 560px) { .table.compact { font-size: .86rem; } .table.compact th, .table.compact td { padding: 8px 6px; } }
+
 @media (max-width: 560px) { .topbar-in { flex-wrap: wrap; gap: 6px; } .topnav { width: 100%; justify-content: space-between; } .topnav .btn { padding: 6px 8px; font-size: .82rem; flex: 1; text-align: center; } }

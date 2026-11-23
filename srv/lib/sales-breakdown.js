@@ -1,19 +1,50 @@
 const normalize = (value) => String(value ?? '').normalize('NFKC').toLowerCase()
-  .replace(/ё/g, 'е').replace(/[^а-яa-z0-9]/g, '');
+  .replace(/ё/g, 'е')
+  .replace(/^[\s./-]*\d+[\s./-]*/, '')
+  .replace(/[^а-яa-z0-9]/g, '');
 
-const excluded = [
-  'Алексей Р.Ш.', 'Андрей Михайлович', 'Антон бухгалтер', 'Захар', 'Маркетинг',
-  'Надежда', 'Персонал', 'Представитьельская оплата', 'Представительская оплата',
-  'Промокод Smoke', 'Расим', 'Сьёмка СММ', 'Съёмка СММ'
-].map(normalize);
-const promo = normalize('ПромоБезОплаты');
+// Значения по умолчанию — 9 типов Егора, в двух написаниях: с номером из iiko и без.
+// Их можно переопределить в настройках кабинета (prefs.promo_pay_types / non_fiscal_pay_types).
+const DEFAULT_PROMO = ['ПромоБезОплаты'];
+const DEFAULT_NON_FISCAL = [
+  'Андрей Михайлович', '334 Андрей Михайлович',
+  'Алексей Р.Ш.', '335 Алексей Р.Ш.',
+  'Расим', '338 Расим',
+  'Представительская оплата', '49 Представительская оплата',
+  'Антон бухгалтер', '19 Антон бухгалтер',
+  'Надежда', '336 Надежда',
+  'Маркетинг', '20 Маркетинг',
+  'Захар', '88 Захар',
+  'Персонал', '88 Персонал'
+];
 
-function classification(type, payment, fiscal) {
+function parseList(value, fallback) {
+  let items = fallback;
+  if (Array.isArray(value) && value.length) items = value;
+  else if (typeof value === 'string' && value.trim()) items = value.split(/\n|,/).map((s) => s.trim()).filter(Boolean);
+  return items.map(normalize).filter(Boolean);
+}
+
+function rulesFromPrefs(prefs) {
+  const p = prefs || {};
+  return {
+    promo: new Set(parseList(p.promo_pay_types, DEFAULT_PROMO)),
+    nonFiscal: new Set(parseList(p.non_fiscal_pay_types, DEFAULT_NON_FISCAL))
+  };
+}
+
+function isUnprintedCheque(fiscal) {
+  if (fiscal == null || fiscal === '') return false;
+  if (fiscal === false || fiscal === 0) return true;
+  const s = String(fiscal).normalize('NFKC').toLowerCase().replace(/ё/g, 'е').trim();
+  return /^(false|0|no|нет|nonfiscal|нефискальный)$/.test(s);
+}
+
+function classification(type, payment, fiscal, rules) {
+  const r = rules || rulesFromPrefs();
   const names = [normalize(type), normalize(payment)];
-  if (names.includes(promo)) return 'promo';
-  if (names.some((name) => excluded.includes(name)) || /^(false|no|нет|nonfiscal|нефискальный)$/.test(normalize(fiscal))) {
-    return 'nonFiscal';
-  }
+  if (names.some((name) => r.promo.has(name))) return 'promo';
+  if (names.some((name) => r.nonFiscal.has(name))) return 'nonFiscal';
   return 'regular';
 }
 
@@ -43,4 +74,7 @@ function paymentOf(name) {
   return 'unknown';
 }
 
-module.exports = { classification, floorOf, entityOf, paymentOf };
+module.exports = {
+  classification, floorOf, entityOf, paymentOf, isUnprintedCheque,
+  rulesFromPrefs, normalize, DEFAULT_PROMO, DEFAULT_NON_FISCAL
+};

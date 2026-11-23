@@ -53,6 +53,16 @@
   .spinner { border-color: rgba(227,178,106,.25) !important; border-top-color: #e3b26a !important; }
   table th { color: var(--muted); }
 
+  /* Главный KPI на тёмной теме не должен сливаться с фоном */
+  .kpi.main {
+    background: linear-gradient(150deg, rgba(227,178,106,.18), rgba(227,178,106,.05)), #1a140e;
+    color: var(--ink);
+    border: 1px solid rgba(227,178,106,.38);
+  }
+  .kpi.main .k-label, .kpi.main .k-sub { color: rgba(244,234,217,.72); }
+  .kpi.main .up { color: #8BE3B5; } .kpi.main .down { color: #FFB4AA; }
+
+
   /* ---------- тарифы (trio-bill.js) ---------- */
   .tb-plans { display: grid; gap: 10px; margin: 6px 0 4px; }
   .tb-plans legend { font-size: .74rem; letter-spacing: .2em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin-bottom: 8px; padding: 0; }

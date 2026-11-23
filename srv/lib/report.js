@@ -2,7 +2,7 @@
 // Названия полей у разных версий iiko немного отличаются, поэтому сначала читаем список полей сервера
 // и берём первое подходящее из кандидатов. Нет поля — раздел отчёта пропускается, а не падает весь отчёт.
 
-const { classification, floorOf, entityOf, paymentOf } = require('./sales-breakdown');
+const { classification, floorOf, entityOf, paymentOf, rulesFromPrefs, isUnprintedCheque } = require('./sales-breakdown');
 
 const CANDIDATES = {
   rev: ['DishDiscountSumInt', 'DishDiscountSum'],
@@ -61,6 +61,7 @@ function body(groups, aggs, filters) {
 }
 
 async function buildReport(iiko, day, sel, opts = {}) {
+  const rules = opts.rules || rulesFromPrefs(opts.prefs);
   const cols = await iiko.columns();
   const f = fields(cols);
   if (!f.rev) throw new Error('В iiko не нашлось поля выручки (DishDiscountSumInt) — нужен доступ к отчётам по продажам');
@@ -165,22 +166,63 @@ async function buildReport(iiko, day, sel, opts = {}) {
     if (reconciles(rows)) {
       const discounts = new Map();
       const discountDetails = new Map();
+      const discountByType = new Map();
       const nonFiscal = new Map();
+      const promoItems = new Map();
       const byWaiter = new Map();
-      let eligibleGross = 0, eligibleNet = 0;
+      const saleReceipts = new Set();
+      const saleGuestsByReceipt = new Map();
+      let saleOrdersAgg = 0, saleGuestsAgg = 0;
+      let eligibleGross = 0, eligibleNet = 0, promoGross = 0, promoNet = 0;
+      const unprinted = { sum: 0, count: 0, receipts: new Set() };
+      const receiptKey = (row) => String(row[f.receipt] || row[f.orderId] || '') || null;
+      const bumpCount = (entry, row, receipts) => {
+        const key = receiptKey(row);
+        if (key) {
+          if (!receipts.has(key)) { receipts.add(key); entry.count += 1; }
+        } else entry.count += 1;
+      };
+      const countSale = (row) => {
+        const key = receiptKey(row);
+        if (key) saleReceipts.add(key);
+        if (f.orders) saleOrdersAgg += num(row[f.orders]);
+        if (f.guests) {
+          const g = num(row[f.guests]);
+          if (key) { if (!saleGuestsByReceipt.has(key)) saleGuestsByReceipt.set(key, g); }
+          else saleGuestsAgg += g;
+        }
+      };
       for (const row of rows) {
         const type = row[f.discType] || '';
         const payment = row[salesPay] || '';
-        const group = classification(type, payment, row[f.fiscal]);
+        const group = classification(type, payment, row[f.fiscal], rules);
         const waiter = String(row[f.waiter] || 'Без официанта');
         const gross = num(row[f.gross]), net = num(row[f.rev]);
-        if (group === 'promo') continue;
+        if (group === 'promo') {
+          promoGross += (net > 0 ? net : gross);
+          promoNet += net;
+          countSale(row);
+          const payName = String(payment || type || 'ПромоБезОплаты').trim() || 'ПромоБезОплаты';
+          const table = String(row[f.table] ?? '').trim();
+          const label = table ? `Стол ${table} · ${payName}` : payName;
+          const entry = promoItems.get(label) || { label, table, type: payName, sum: 0, count: 0, receipts: new Set() };
+          entry.sum += (net > 0 ? net : gross);
+          bumpCount(entry, row, entry.receipts);
+          promoItems.set(label, entry);
+          continue;
+        }
         if (group === 'nonFiscal') {
-          const name = classification(type) === 'nonFiscal' ? type : payment || type || 'Прочие';
-          const entry = nonFiscal.get(name) || { type: name, sum: 0 };
+          const name = classification(type, '', null, rules) === 'nonFiscal' ? (type || payment || 'Прочие') : (payment || type || 'Прочие');
+          const entry = nonFiscal.get(name) || { type: name, sum: 0, count: 0, receipts: new Set() };
           entry.sum += gross;
+          bumpCount(entry, row, entry.receipts);
           nonFiscal.set(name, entry);
           continue;
+        }
+        countSale(row);
+        if (isUnprintedCheque(row[f.fiscal])) {
+          unprinted.sum += net;
+          bumpCount(unprinted, row, unprinted.receipts);
         }
         eligibleGross += gross;
         eligibleNet += net;
@@ -194,6 +236,10 @@ async function buildReport(iiko, day, sel, opts = {}) {
           const entry = discounts.get(key) || { type: discountType, waiter, sum: 0 };
           entry.sum += gross - net;
           discounts.set(key, entry);
+          const byType = discountByType.get(discountType) || { type: discountType, sum: 0, count: 0, receipts: new Set() };
+          byType.sum += gross - net;
+          bumpCount(byType, row, byType.receipts);
+          discountByType.set(discountType, byType);
           if (detailed) {
             const detail = {
               type: discountType, waiter,
@@ -212,15 +258,53 @@ async function buildReport(iiko, day, sel, opts = {}) {
           }
         }
       }
+      const clean = (x) => { const { receipts, ...rest } = x; return { ...rest, sum: r2(x.sum), count: x.count || 0 }; };
       out.totals.discount = r2(Math.max(0, eligibleGross - eligibleNet));
       out.totals.discount_base = r2(eligibleGross);
-      out.non_fiscal = [...nonFiscal.values()].map((x) => ({ ...x, sum: r2(x.sum) })).sort((a, b) => b.sum - a.sum);
+      // Выручка = фискальные чеки (после скидки) + промо без оплаты. Нефискальные «за счёт заведения» не входят.
+      const fiscalRevenue = r2(eligibleNet + promoGross);
+      const nfCount = [...nonFiscal.values()].reduce((s, x) => s + (x.count || 0), 0);
+      const saleGuests = saleGuestsByReceipt.size
+        ? [...saleGuestsByReceipt.values()].reduce((s, g) => s + g, 0)
+        : saleGuestsAgg;
+      const saleOrders = saleReceipts.size || saleOrdersAgg || (tot.orders && nfCount ? Math.max(0, tot.orders - nfCount) : 0);
+      if (Math.abs(fiscalRevenue - tot.revenue) >= 0.01 || nonFiscal.size || saleOrders) {
+        out.totals.revenue_iiko = r2(tot.revenue);
+        out.totals.revenue = fiscalRevenue;
+      }
+      if (saleOrders) {
+        out.totals.orders = saleOrders;
+        out.totals.avg_check = r2(fiscalRevenue / saleOrders);
+      } else if (tot.orders) {
+        out.totals.avg_check = r2(fiscalRevenue / tot.orders);
+      }
+      if (saleGuests) {
+        out.totals.guests = saleGuests;
+        out.totals.avg_guest = r2(fiscalRevenue / saleGuests);
+        out.totals.guests_include_non_fiscal = false;
+      } else {
+        out.totals.avg_guest = tot.guests ? r2(fiscalRevenue / tot.guests) : 0;
+        out.totals.guests_include_non_fiscal = true;
+      }
+      out.non_fiscal = [...nonFiscal.values()].map(clean).sort((a, b) => b.sum - a.sum);
+      out.promo_items = [...promoItems.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum);
+      out.promo_total = r2(out.promo_items.reduce((s, x) => s + x.sum, 0));
+      if (unprinted.count || unprinted.sum) out.unprinted = { sum: r2(unprinted.sum), count: unprinted.count };
+      out.discount_by_type = [...discountByType.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum);
       out.discounts = [...discounts.values()].filter((x) => x.sum > 0)
         .sort((a, b) => b.sum - a.sum).slice(0, 15).map((x) => ({ ...x, sum: r2(x.sum) }));
       if (detailed) {
         out.discount_details = [...discountDetails.values()].filter((x) => x.sum > 0)
           .map((x) => ({ ...x, sum: r2(x.sum) }))
           .sort((a, b) => a.closed.localeCompare(b.closed) || a.receipt.localeCompare(b.receipt));
+      }
+      if (out.pay && out.pay.length) {
+        const classified = out.pay.map((x) => ({ ...x, group: classification('', x.name, null, rules) }));
+        const kept = classified.filter((x) => x.group !== 'nonFiscal');
+        if (kept.length !== classified.length) {
+          const shareBase = fiscalRevenue || kept.reduce((s, x) => s + x.sum, 0);
+          out.pay = kept.map((x) => ({ name: x.name, sum: x.sum, share: shareBase ? r2(x.sum / shareBase) : 0 }));
+        }
       }
       out.waiters.forEach((w) => {
         const x = byWaiter.get(w.name);
@@ -243,7 +327,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
     const rows = salesRows;
     const grouped = new Map();
     for (const row of rows) {
-      if (classification(row[f.discType], row[salesPay]) !== 'regular') continue;
+      if (classification(row[f.discType], row[salesPay], null, rules) === 'nonFiscal') continue;
       const floor = floorOf(row[f.floor], row[f.dept]);
       const entity = entityOf(row[f.entity]);
       const payment = paymentOf(row[salesPay]);
@@ -258,15 +342,22 @@ async function buildReport(iiko, day, sel, opts = {}) {
       out.revenue_breakdown = [...grouped.values()].map((x) => ({ ...x, sum: r2(x.sum) }));
     }
   }
-  if (salesMatch && f.gross && Math.abs(salesRows.reduce((sum, row) => sum + num(row[f.gross]), 0) - tot.gross) < 0.02) {
+  if ((!out.promo_items || !out.promo_items.length) && salesMatch && f.gross && Math.abs(salesRows.reduce((sum, row) => sum + num(row[f.gross]), 0) - tot.gross) < 0.02) {
     const rows = salesRows;
     if (rows.length || !tot.gross) {
-      const amounts = { '1': 0, '2': 0, unknown: 0 };
+      const items = new Map();
       for (const row of rows) {
-        if (classification(row[f.discType], row[salesPay]) !== 'promo') continue;
-        amounts[floorOf(row[f.floor], row[f.dept])] += num(row[f.gross]);
+        if (classification(row[f.discType], row[salesPay], null, rules) !== 'promo') continue;
+        const payName = String(row[salesPay] || row[f.discType] || 'ПромоБезОплаты').trim() || 'ПромоБезОплаты';
+        const table = String(row[f.table] ?? '').trim();
+        const label = table ? `Стол ${table} · ${payName}` : payName;
+        const entry = items.get(label) || { label, table, type: payName, sum: 0, count: 0 };
+        entry.sum += num(row[f.gross]);
+        entry.count += 1;
+        items.set(label, entry);
       }
-      out.promo = Object.fromEntries(Object.entries(amounts).map(([floor, sum]) => [floor, r2(sum)]));
+      out.promo_items = [...items.values()].map((x) => ({ ...x, sum: r2(x.sum) })).sort((a, b) => b.sum - a.sum);
+      out.promo_total = r2(out.promo_items.reduce((s, x) => s + x.sum, 0));
     }
   }
 
@@ -281,7 +372,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
 }
 
 function money(n) { return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n)) + ' ₽'; }
-function pct(x) { return Math.round(x * 100) + '%'; }
+function pct(x) { return (Math.round(Number(x) * 1000) / 10).toFixed(1).replace('.', ',') + '%'; }
 
 // правила «на что посмотреть собственнику»
 function flags(o) {
@@ -297,7 +388,7 @@ function flags(o) {
   if (noWo >= 1000) out.push({ level: 'warn', text: `Удалено без списания на ${money(noWo)} — проверьте причины` });
   const discountBase = t.discount_base ?? t.gross;
   const share = discountBase > 0 ? t.discount / discountBase : 0;
-  if (share >= 0.12) out.push({ level: 'warn', text: `Скидки — ${pct(share)} от суммы чеков (${money(t.discount)})` });
+  if (share >= 0.12) out.push({ level: 'warn', text: `Скидки — ${pct(share)} от суммы до скидок (${money(t.discount)})` });
   const ws = o.waiters.filter((w) => w.revenue > 0);
   ws.forEach((w) => {
     if (w.discount >= 1000 && w.discount_share >= Math.max(0.1, share * 2)) out.push({ level: 'bad', text: `${w.name}: скидки ${pct(w.discount_share)} от его чеков (${money(w.discount)}) — заметно выше среднего` });
