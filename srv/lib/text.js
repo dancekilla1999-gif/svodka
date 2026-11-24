@@ -44,6 +44,42 @@ function discountTypes(o) {
   return [...byType.values()].sort((a, b) => b.sum - a.sum);
 }
 
+const FOUNDERS = 'Учредительские столы';
+function num0(n) { return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n || 0)).replace(/\s/g, ' '); }
+function cell(value, width, right) {
+  let s = String(value ?? '');
+  if (s.length > width) s = s.slice(0, width - 1) + '…';
+  return right ? s.padStart(width) : s.padEnd(width);
+}
+function tableRow(name, table, count, total) {
+  return `${cell(name, 18)} ${cell(table, 4, true)} ${cell(count, 3, true)} ${cell(total, 8, true)}`;
+}
+
+// Блок «Списания / За счёт заведения»: таблица по типам оплаты (название, стол, чеков, сумма) с итогом.
+// Учредительские столы — отдельной группой с подытогом. В кассу, скидки и выручку эти суммы не входят.
+function writeOffLines(o) {
+  const rows = o.non_fiscal || [];
+  const L = ['<b>🧾 Списания / За счёт заведения</b>', '<i>Не в кассе, не в скидках, не в выручке</i>'];
+  if (!rows.length) { L.push('Нет'); return L; }
+  const founders = rows.filter((x) => x.category === FOUNDERS);
+  const others = rows.filter((x) => x.category !== FOUNDERS);
+  const count = (list) => list.reduce((s, x) => s + Number(x.count || 0), 0);
+  const T = [tableRow('Тип оплаты', 'Стол', 'Чек', 'Сумма ₽')];
+  const line = (x) => T.push(tableRow(x.type || '—', x.table || '', x.count || '—', num0(x.sum)));
+  if (founders.length) {
+    T.push('— Учредительские столы —');
+    founders.forEach(line);
+    T.push(tableRow('Итого учредит.', '', count(founders), num0(sum(founders))));
+  }
+  if (others.length) {
+    if (founders.length) T.push('— Прочие за счёт заведения —');
+    others.forEach(line);
+  }
+  T.push(tableRow('ИТОГО', '', count(rows), num0(sum(rows))));
+  L.push(`<pre>${esc(T.join('\n'))}</pre>`);
+  return L;
+}
+
 function reportText(o, link, extra = '') {
   const t = o.totals || {}, p = o.prev || {}, m = o.profit || {};
   const L = [`<b>📊 Итоги смены · ${esc(dayRu(o.day))}</b>${o.demo ? ' · <i>демо</i>' : ''}`];
@@ -74,19 +110,7 @@ function reportText(o, link, extra = '') {
   if (types.length > 8) L.push(`• Остальные типы: ${money(sum(types.slice(8)))}`);
   else if (!types.length && t.discount > 0) L.push('iiko не вернул разбивку по типам скидок');
 
-  const nonFiscal = o.non_fiscal || [];
-  const nfSum = sum(nonFiscal);
-  const nfCount = nonFiscal.reduce((s, x) => s + Number(x.count || 0), 0);
-  L.push('', '<b>🧾 Нефискальные (за счёт заведения)</b>');
-  if (!nonFiscal.length) L.push('Нет');
-  else {
-    L.push(`Всего: <b>${money(nfSum)}</b>${nfCount ? ` · ${cheques(nfCount)}` : ''}`);
-    L.push('<i>Не входят в выручку и не считаются скидками</i>');
-    nonFiscal.forEach((x) => {
-      const n = x.count ? ` · ${x.count}` : '';
-      L.push(`• ${label(x.type, 40)}: ${money(x.sum)}${n}`);
-    });
-  }
+  L.push('', ...writeOffLines(o));
 
   if (o.unprinted && (o.unprinted.sum || o.unprinted.count)) {
     const n = o.unprinted.count || 0;
@@ -154,4 +178,4 @@ async function tgSend(chatId, text) {
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }), signal: AbortSignal.timeout(15000) });
   return r.ok;
 }
-module.exports = { reportText, discountRegistryText, tgSend, money, discountTypes, percent, pct1, plural };
+module.exports = { reportText, writeOffLines, discountRegistryText, tgSend, money, discountTypes, percent, pct1, plural };

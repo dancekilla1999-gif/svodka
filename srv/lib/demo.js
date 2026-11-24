@@ -39,10 +39,11 @@ function demoReport(day, opts = {}) {
   };
   const promo = 2400;
   const nonFiscal = [
-    { type: 'Андрей Михайлович', sum: 4500, count: 2 },
-    { type: 'Маркетинг', sum: 3200, count: 1 },
-    { type: 'Персонал', sum: 2100, count: 3 },
-    { type: 'Представительская оплата', sum: 1800, count: 1 }
+    { type: 'Андрей Михайлович', category: 'Учредительские столы', founder: 'Андрей М.', table: '334', sum: 4500, count: 2 },
+    { type: 'Расим', category: 'Учредительские столы', founder: 'Расим К.', table: '338', sum: 3900, count: 1 },
+    { type: 'Маркетинг', category: 'За счёт заведения', founder: null, table: '20', sum: 3200, count: 1 },
+    { type: 'Персонал', category: 'За счёт заведения', founder: null, table: '88', sum: 2100, count: 3 },
+    { type: 'Представительская оплата', category: 'За счёт заведения', founder: null, table: '49', sum: 1800, count: 1 }
   ];
   const luna = r2(discount * 0.62);
   const restDisc = r2(Math.max(0, discount - luna));
@@ -75,6 +76,9 @@ function demoReport(day, opts = {}) {
     { type: 'Скидка сотрудника 30%', waiter: WAITERS[0], sum: staffDisc, receipt: '1910', order_id: 'demo-s', closed: day + 'T20:40:00', table: '8', guest: '', authorized_by: WAITERS[0], room: '1 этаж' }
   );
   out.non_fiscal = nonFiscal;
+  out.founders = [{ name: 'Андрей М.', sum: 4500, count: 2 }, { name: 'Расим К.', sum: 3900, count: 1 }];
+  out.founders_total = 8400;
+  out.write_offs_total = r2(nonFiscal.reduce((s, x) => s + x.sum, 0));
   out.promo_items = [{ label: 'Стол 27 · ПромоБезОплаты', table: '27', type: 'ПромоБезОплаты', sum: promo, count: 1 }];
   out.promo_total = promo;
   out.unprinted = { sum: 1800, count: 2 };

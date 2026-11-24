@@ -2,7 +2,7 @@
 // Названия полей у разных версий iiko немного отличаются, поэтому сначала читаем список полей сервера
 // и берём первое подходящее из кандидатов. Нет поля — раздел отчёта пропускается, а не падает весь отчёт.
 
-const { classification, floorOf, entityOf, paymentOf, rulesFromPrefs, isUnprintedCheque } = require('./sales-breakdown');
+const { classification, floorOf, entityOf, paymentOf, rulesFromPrefs, isUnprintedCheque, nonFiscalOf, FOUNDERS_CATEGORY } = require('./sales-breakdown');
 
 const CANDIDATES = {
   rev: ['DishDiscountSumInt', 'DishDiscountSum'],
@@ -24,6 +24,7 @@ const CANDIDATES = {
   floor: ['RestaurantSection'],
   entity: ['JurName'],
   payCombo: ['PayTypes.Combo'],
+  payGroup: ['PayTypes.Group'],
   receipt: ['OrderNum'],
   orderId: ['UniqOrderId.Id'],
   closed: ['CloseTime'],
@@ -70,7 +71,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
   const from = day, to = isoAdd(day, 1);
   const flt = baseFilters(f, from, to, deptIds, deptNames, true);
   const aggMain = [f.rev, f.gross, f.orders, f.guests, f.cost];
-  const optionalFields = ['deptId', 'disc', 'discType', 'cost', 'fiscal', 'floor', 'entity', 'payCombo', 'receipt', 'orderId', 'closed', 'table', 'cardOwner', 'authorizedBy'];
+  const optionalFields = ['deptId', 'disc', 'discType', 'cost', 'fiscal', 'floor', 'entity', 'payCombo', 'payGroup', 'receipt', 'orderId', 'closed', 'table', 'cardOwner', 'authorizedBy'];
   const missing = Object.keys(f).filter((k) => !f[k] && !optionalFields.includes(k));
   const out = { demo: false, day, depts: deptNames, generated_at: new Date().toISOString(), fields_missing: missing };
   // OLAP-запросы идут параллельно (не больше 4 одновременно): последовательно медленный iiko не укладывался в лимит функции
@@ -82,7 +83,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
   const dflt = f.del ? baseFilters(f, from, to, deptIds, deptNames, false) : null;
   if (dflt) dflt[f.del] = { filterType: 'ExcludeValues', values: ['NOT_DELETED'] };
   const salesPay = f.payCombo || f.pay;
-  const discountGroups = [f.discType, salesPay, f.fiscal, f.waiter];
+  const discountGroups = [f.discType, salesPay, f.payGroup, f.fiscal, f.waiter];
   const discountDetailGroups = [...new Set([...discountGroups, f.receipt, f.orderId, f.closed, f.table, f.cardOwner, f.authorizedBy, f.floor, f.dept].filter(Boolean))];
   const hasReceiptDetail = !!(f.receipt || f.orderId);
   // Комбинация оплат сохраняет выручку чека одной строкой. Смешанные оплаты
@@ -211,12 +212,23 @@ async function buildReport(iiko, day, sel, opts = {}) {
           promoItems.set(label, entry);
           continue;
         }
-        if (group === 'nonFiscal') {
-          const name = classification(type, '', null, rules) === 'nonFiscal' ? (type || payment || 'Прочие') : (payment || type || 'Прочие');
-          const entry = nonFiscal.get(name) || { type: name, sum: 0, count: 0, receipts: new Set() };
-          entry.sum += gross;
+        // Списания / за счёт заведения: не касса, не скидки, не выручка. Типы из списка, группа оплаты
+        // «За счет заведения» (PayTypes.Group = WRITEOFF) и запасной признак — сумма в DiscountSum без типа скидки.
+        const wo = nonFiscalOf({ type, payment, payGroup: row[f.payGroup], fiscal: row[f.fiscal], gross, net, table: row[f.table], guest: row[f.cardOwner] }, rules);
+        if (wo) {
+          const key = JSON.stringify([wo.category, wo.name]);
+          const entry = nonFiscal.get(key) || { type: wo.name, category: wo.category, founder: wo.founder || null, tables: new Set(), reasons: new Set(), sum: 0, count: 0, receipts: new Set() };
+          entry.sum += Math.max(0, wo.sum);
+          if (wo.table) entry.tables.add(wo.table);
+          entry.reasons.add(wo.reason);
           bumpCount(entry, row, entry.receipts);
-          nonFiscal.set(name, entry);
+          if (wo.sum > 0.009) nonFiscal.set(key, entry);
+          if (wo.rest <= 0.009) continue;
+          // смешанная оплата: оплаченная часть — обычная продажа без скидки
+          countSale(row);
+          eligibleGross += wo.rest; eligibleNet += wo.rest;
+          const w = byWaiter.get(waiter) || { gross: 0, net: 0 };
+          w.gross += wo.rest; w.net += wo.rest; byWaiter.set(waiter, w);
           continue;
         }
         countSale(row);
@@ -286,7 +298,21 @@ async function buildReport(iiko, day, sel, opts = {}) {
         out.totals.avg_guest = tot.guests ? r2(fiscalRevenue / tot.guests) : 0;
         out.totals.guests_include_non_fiscal = true;
       }
-      out.non_fiscal = [...nonFiscal.values()].map(clean).sort((a, b) => b.sum - a.sum);
+      out.non_fiscal = [...nonFiscal.values()].map((x) => {
+        const { tables, reasons, ...rest } = clean(x);
+        return { ...rest, table: [...tables].sort((a, b) => a.localeCompare(b, 'ru', { numeric: true })).join(', '), reasons: [...reasons] };
+      }).sort((a, b) => (a.category === FOUNDERS_CATEGORY ? 0 : 1) - (b.category === FOUNDERS_CATEGORY ? 0 : 1) || b.sum - a.sum);
+      const founders = out.non_fiscal.filter((x) => x.category === FOUNDERS_CATEGORY);
+      const byFounder = new Map();
+      founders.forEach((x) => {
+        const name = x.founder || x.type;
+        const e = byFounder.get(name) || { name, sum: 0, count: 0 };
+        e.sum = r2(e.sum + x.sum); e.count += x.count || 0;
+        byFounder.set(name, e);
+      });
+      out.founders = [...byFounder.values()].sort((a, b) => b.sum - a.sum);
+      out.founders_total = r2(founders.reduce((s, x) => s + x.sum, 0));
+      out.write_offs_total = r2(out.non_fiscal.reduce((s, x) => s + x.sum, 0));
       out.promo_items = [...promoItems.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum);
       out.promo_total = r2(out.promo_items.reduce((s, x) => s + x.sum, 0));
       if (unprinted.count || unprinted.sum) out.unprinted = { sum: r2(unprinted.sum), count: unprinted.count };
