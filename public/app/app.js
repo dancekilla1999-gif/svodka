@@ -250,11 +250,26 @@
       })(),
       (o.discounts || []).length ? h("section", { class: "form" }, h("h2", { text: "Скидки по сотрудникам" }),
         table(["Скидка", "Сотрудник", "Сумма"], o.discounts.map(function (x) { return [x.type, x.waiter, money(x.sum)]; }), [2])) : null,
-      (o.non_fiscal || []).length ? h("section", { class: "form", id: "non-fiscal" }, h("h2", { text: "Нефискальные (за счёт заведения)" }),
-        h("p", { class: "small muted", text: "Эти типы оплаты не входят в выручку и не считаются скидками. Список типов можно изменить в настройках." }),
-        table(["Тип оплаты", "Чеков", "Сумма"], o.non_fiscal.map(function (x) { return [x.type, x.count ? int(x.count) : "—", money(x.sum)]; }).concat([
-          ["ВСЕГО", int(o.non_fiscal.reduce(function (s, x) { return s + (Number(x.count) || 0); }, 0)) || "—", money(o.non_fiscal.reduce(function (s, x) { return s + (Number(x.sum) || 0); }, 0))]
-        ]), [1, 2])) : null,
+      (o.non_fiscal || []).length ? (function () {
+        var F = "Учредительские столы";
+        var cnt = function (l) { return l.reduce(function (s, x) { return s + (Number(x.count) || 0); }, 0); };
+        var tot = function (l) { return l.reduce(function (s, x) { return s + (Number(x.sum) || 0); }, 0); };
+        var row = function (x) { return [x.type, x.table || "—", x.count ? int(x.count) : "—", money(x.sum)]; };
+        var founders = o.non_fiscal.filter(function (x) { return x.category === F; });
+        var others = o.non_fiscal.filter(function (x) { return x.category !== F; });
+        var rows = [];
+        if (founders.length) {
+          rows.push(["Учредительские столы", "", "", ""]);
+          rows = rows.concat(founders.map(row));
+          rows.push(["Итого учредительские", "", int(cnt(founders)) || "—", money(tot(founders))]);
+          if (others.length) rows.push(["Прочие за счёт заведения", "", "", ""]);
+        }
+        rows = rows.concat(others.map(row));
+        rows.push(["ВСЕГО", "", int(cnt(o.non_fiscal)) || "—", money(tot(o.non_fiscal))]);
+        return h("section", { class: "form", id: "non-fiscal" }, h("h2", { text: "Списания / За счёт заведения" }),
+          h("p", { class: "small muted", text: "Не в кассе, не в скидках, не в выручке. Тип оплаты из группы «За счёт заведения» или из списка в настройках." }),
+          table(["Тип оплаты", "Стол", "Чеков", "Сумма"], rows, [2, 3]));
+      })() : null,
       (o.unprinted && (o.unprinted.sum || o.unprinted.count)) ? h("p", { class: "small muted", text: "Без фискального чека, не из списка: " + money(o.unprinted.sum) + " · " + int(o.unprinted.count || 0) + " " + SV.plural(o.unprinted.count || 0, "чек", "чека", "чеков") + " (в выручке, проверьте тип оплаты)" }) : null,
       (function () {
         var items = o.promo_items && o.promo_items.length ? o.promo_items : (o.promo ? [

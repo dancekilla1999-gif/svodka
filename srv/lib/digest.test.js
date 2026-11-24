@@ -61,9 +61,15 @@ function testDigest() {
   assert.match(text, /Итоги смены/);
   assert.match(text, /Скидки/);
   assert.match(text, /Луна/);
-  assert.match(text, /Нефискальные \(за счёт заведения\)/);
-  assert.match(text, /Андрей Михайлович/);
-  assert.match(text, /Маркетинг/);
+  assert.match(text, /Списания \/ За счёт заведения/);
+  assert.match(text, /Не в кассе, не в скидках, не в выручке/);
+  assert.match(text, /<pre>Тип оплаты\s+Стол\s+Чек\s+Сумма ₽/);
+  assert.match(text, /— Учредительские столы —/);
+  assert.match(text, /Андрей Михайлович\s+334\s+2\s+4 500/);
+  assert.match(text, /Итого учредит\.\s+3\s+8 400/);
+  assert.match(text, /Маркетинг\s+20\s+1\s+3 200/);
+  assert.match(text, /ИТОГО\s+8\s+15 500<\/pre>/);
+  assert.doesNotMatch(text, /Нефискальные/);
   assert.match(text, /Промо без оплаты/);
   assert.match(text, /Стол 27 · ПромоБезОплаты/);
   assert.doesNotMatch(text, /1 этаж: /);
@@ -73,7 +79,7 @@ function testDigest() {
   assert.match(text, /\n\nБез фискального чека, не из списка:/);
   const unp = text.indexOf('Без фискального чека');
   const promo = text.indexOf('Промо без оплаты');
-  const nf = text.indexOf('Нефискальные');
+  const nf = text.indexOf('Списания / За счёт заведения');
   assert.ok(nf >= 0 && unp > nf && promo > unp, 'строка без чека идёт после нефискальных и перед промо');
   assert.doesNotMatch(text, /2 чеков/);
 
