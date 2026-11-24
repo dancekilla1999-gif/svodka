@@ -213,7 +213,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
           continue;
         }
         // Списания / за счёт заведения: не касса, не скидки, не выручка. Типы из списка, группа оплаты
-        // «За счет заведения» (PayTypes.Group = WRITEOFF) и запасной признак — сумма в DiscountSum без типа скидки.
+        // «За счет заведения» (PayTypes.Group = WRITEOFF), «учредит» и запасной признак: денег в чеке нет, тип оплаты не денежный.
         const wo = nonFiscalOf({ type, payment, payGroup: row[f.payGroup], fiscal: row[f.fiscal], gross, net, table: row[f.table], guest: row[f.cardOwner] }, rules);
         if (wo) {
           const key = JSON.stringify([wo.category, wo.name]);
@@ -223,12 +223,6 @@ async function buildReport(iiko, day, sel, opts = {}) {
           entry.reasons.add(wo.reason);
           bumpCount(entry, row, entry.receipts);
           if (wo.sum > 0.009) nonFiscal.set(key, entry);
-          if (wo.rest <= 0.009) continue;
-          // смешанная оплата: оплаченная часть — обычная продажа без скидки
-          countSale(row);
-          eligibleGross += wo.rest; eligibleNet += wo.rest;
-          const w = byWaiter.get(waiter) || { gross: 0, net: 0 };
-          w.gross += wo.rest; w.net += wo.rest; byWaiter.set(waiter, w);
           continue;
         }
         countSale(row);
@@ -243,7 +237,7 @@ async function buildReport(iiko, day, sel, opts = {}) {
         w.net += net;
         byWaiter.set(waiter, w);
         if (gross !== net) {
-          const discountType = type || 'Тип не указан';
+          const discountType = type || 'Тип не указан — проверить';
           const key = JSON.stringify([discountType, waiter]);
           const entry = discounts.get(key) || { type: discountType, waiter, sum: 0 };
           entry.sum += gross - net;

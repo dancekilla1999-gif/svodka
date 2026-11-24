@@ -103,6 +103,33 @@ async function testNoGroupField() {
 }
 
 // Тип оплаты в строке OLAP пустой: всё равно не скидки и не выручка, а «За счёт заведения» с пометкой.
+// Обычные чеки со скидкой без типа (наличные, карта, гость-тёзка) остаются в скидках «Тип не указан — проверить».
+async function testCashCardNoType() {
+  const atoms = shiftAtoms();
+  atoms.push(sale('Наличные', 1000, 100, ''), sale('Банковская карта', 1000, 100, '', { CardOwner: 'Андрей' }),
+    sale('Visa', 1000, 100, '', { CardOwner: 'Расим' }));
+  const o = await buildReport(fakeIiko(atoms), '2026-11-23', []);
+  const unk = o.discount_by_type.find((x) => x.type === 'Тип не указан — проверить');
+  assert.ok(unk, 'скидка без типа видна в скидках');
+  assert.equal(unk.sum, 300); assert.equal(unk.count, 3);
+  assert.equal(o.totals.discount, 10371 + 300);
+  assert.equal(o.founders_total, 36410, 'тёзки не добавились к учредителям');
+  assert.equal(o.write_offs_total, 36410);
+  assert.ok(!o.non_fiscal.some((x) => /Наличные|карта|Visa/i.test(x.type)));
+  const text = reportText(o, null);
+  assert.match(text, /Тип не указан — проверить: 300/);
+}
+
+// Стол в iiko пустой → «—», номер из названия типа не подставляется.
+async function testEmptyTable() {
+  const atoms = shiftAtoms({ rasim: '338 Расим', andrey: '334 Андрей Михайлович' }).map((a) => a['PayTypes.Group'] === 'WRITEOFF' && a.PayTypes !== 'ПромоБезОплаты' ? { ...a, TableNum: '' } : a);
+  const o = await buildReport(fakeIiko(atoms), '2026-11-23', []);
+  assert.ok(o.non_fiscal.every((x) => x.table === ''));
+  const text = reportText(o, null);
+  assert.match(text, /Расим\s+—\s+1\s+17 540/);
+  assert.doesNotMatch(text, /Расим\s+338/);
+}
+
 async function testEmptyPayName() {
   const atoms = shiftAtoms().map((a) => a['PayTypes.Group'] === 'WRITEOFF' && a.PayTypes !== 'ПромоБезОплаты' ? { ...a, PayTypes: '', 'PayTypes.Combo': '' } : a);
   const o = await buildReport(fakeIiko(atoms), '2026-11-23', []);
@@ -129,9 +156,26 @@ function testUnits() {
   }
   assert.equal(nonFiscalOf({ payment: 'ПромоБезОплаты', payGroup: 'WRITEOFF', gross: 1000, net: 1000 }, r), null, 'промо идёт в выручку');
   assert.equal(nonFiscalOf({ type: 'LoonaLevel2', payment: 'Банковская карта', payGroup: 'CARD', gross: 1000, net: 750 }, r), null);
-  // смешанная оплата: часть картой, часть за счёт заведения — списание только на списанную часть
-  const mix = nonFiscalOf({ type: '', payment: 'Банковская карта, 338 Расим', payGroup: '', gross: 5000, net: 2000 }, r);
-  assert.equal(mix.sum, 3000); assert.equal(mix.rest, 2000); assert.equal(mix.founder, 'Расим К.');
+  // Крайние случаи запасного признака (замечания критика): деньги в чеке есть → это не списание.
+  assert.equal(nonFiscalOf({ type: '', payment: 'Наличные', fiscal: true, gross: 1000, net: 900 }, r), null, 'наличные со скидкой без типа');
+  assert.equal(nonFiscalOf({ type: '', payment: 'Банковская карта', fiscal: true, gross: 1000, net: 900 }, r), null, 'карта со скидкой без типа');
+  assert.equal(nonFiscalOf({ type: '', payment: 'Visa', gross: 1000, net: 900, guest: 'Андрей' }, r), null, 'гость-тёзка с картой');
+  assert.equal(nonFiscalOf({ type: '', payment: 'Банковская карта', gross: 1000, net: 0, guest: 'Расим' }, r), null, 'чек без денег, но тип денежный');
+  assert.equal(nonFiscalOf({ type: '', payment: 'СБП', gross: 1000, net: 0 }, r), null);
+  // смешанная оплата деньгами + списание без группы/списка → остаётся в скидках
+  assert.equal(nonFiscalOf({ type: '', payment: 'Банковская карта, Расим К.', gross: 5000, net: 2000 }, r), null);
+  // чек без денег с не денежным типом → списание; учредителя по гостю без list/group не ищем
+  const nr = nonFiscalOf({ type: '', payment: 'Расим К.', gross: 1000, net: 0, guest: 'Андрей' }, r);
+  assert.equal(nr.reason, 'no-revenue'); assert.equal(nr.founder, 'Расим К.'); assert.equal(nr.sum, 1000);
+  const nrGuest = nonFiscalOf({ type: '', payment: 'Стол Андрея', gross: 1000, net: 0, guest: 'Андрей' }, r);
+  assert.equal(nrGuest.reason, 'no-revenue'); assert.equal(nrGuest.founder, null); assert.equal(nrGuest.category, 'За счёт заведения');
+  const nrEmpty = nonFiscalOf({ type: '', payment: '', gross: 1000, net: 0, guest: 'Расим' }, r);
+  assert.equal(nrEmpty.founder, null); assert.equal(nrEmpty.name, 'Тип оплаты не указан');
+  // по группе WRITEOFF гость учитывается
+  const grp = nonFiscalOf({ type: '', payment: 'Учредители', payGroup: 'WRITEOFF', gross: 1000, net: 0, guest: 'Андрей Михайлович' }, r);
+  assert.equal(grp.founder, 'Андрей М.');
+  // стол не подставляется из номера в названии типа
+  assert.equal(nonFiscalOf({ type: '', payment: '338 Расим', gross: 1000, net: 0 }, r).table, '');
   const custom = rulesFromPrefs({ founders: ['Ирина С.: 401 Ирина'] });
   assert.equal(founderOf('401 Ирина', custom), 'Ирина С.');
 }
@@ -142,6 +186,8 @@ function testUnits() {
   await testUnknownNamesByGroup();
   await testNoGroupField();
   await testEmptyPayName();
+  await testCashCardNoType();
+  await testEmptyTable();
   if (process.env.SHOW) console.log(text);
   console.log('ok: founders tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

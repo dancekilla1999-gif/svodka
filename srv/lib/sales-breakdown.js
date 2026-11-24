@@ -94,11 +94,19 @@ function splitPayName(value) {
   return m ? { name: m[2].trim(), code: m[1] } : { name: s, code: '' };
 }
 
+// Денежный тип оплаты: наличные, карта, СБП, безнал — по нему деньги в кассе/на счёте есть.
+const MONEY_PAY = /нал|cash|карт|card|visa|виза|master|мастер|maestro|мир|сбп|sbp|qr|эквайр|безнал|сч[её]т|перевод|transfer|сбер|sber|тинькоф|tinkoff|т-?банк|альфа|apple|google|samsung|pay|юкасс|yookassa|онлайн/;
+function isMoneyPay(payment) {
+  const label = String(payment ?? '').normalize('NFKC').toLowerCase().replace(/ё/g, 'е');
+  return !!label.trim() && MONEY_PAY.test(label);
+}
+
 // Строка продаж → «Списания / За счёт заведения» или null (обычная продажа или промо).
 // row: { type, payment, payGroup, fiscal, gross, net, table, guest }.
-// Признаки списания, по порядку: тип оплаты из списка нефискальных; группа оплаты «За счет заведения»
-// (WRITEOFF); тип оплаты/стол со словом «учредит»; запасной — сумма ушла в DiscountSum без типа скидки
-// (так iiko отражает оплату «за счёт заведения», из-за этого раньше и было «Тип не указан»).
+// Признаки списания, по порядку: тип оплаты из списка нефискальных (list); группа оплаты «За счет заведения»
+// = WRITEOFF (group); «учредит» в типе оплаты/столе (word); запасной (no-revenue) — в чеке нет денег (net≈0),
+// тип скидки пустой и тип оплаты не денежный. Чек, частично оплаченный деньгами, со скидкой без типа
+// остаётся в «Скидках» строкой «Тип не указан — проверить».
 function nonFiscalOf(row, rules) {
   const r = rules || rulesFromPrefs();
   const type = String(row.type ?? '').trim();
@@ -106,21 +114,20 @@ function nonFiscalOf(row, rules) {
   const gross = Number(row.gross) || 0, net = Number(row.net) || 0;
   const base = classification(type, payment, row.fiscal, r);
   if (base === 'promo') return null;
-  const writeOff = gross - net;
+  const byList = base === 'nonFiscal';
   const byGroup = isWriteoffGroup(row.payGroup);
   const founderWord = [payment, type, row.table].some((v) => FOUNDER_WORD.test(normalize(v)));
-  const noRevenue = !type && gross > 0 && writeOff > 0.009;
-  if (base !== 'nonFiscal' && !byGroup && !founderWord && !noRevenue) return null;
+  const noRevenue = !type && gross > 0 && Math.abs(net) <= 0.009 && !isMoneyPay(payment);
+  if (!byList && !byGroup && !founderWord && !noRevenue) return null;
   const listedType = classification(type, '', null, r) === 'nonFiscal';
-  const raw = (base === 'nonFiscal' && listedType ? type : payment) || type || '';
-  const { name, code } = splitPayName(raw);
-  const founder = founderOf(raw, r) || ((founderWord || byGroup || noRevenue) ? founderOf(row.guest, r) : null);
+  const raw = (byList && listedType ? type : payment) || type || '';
+  const { name } = splitPayName(raw);
+  // По гостю (карте) учредителя ищем только при явном признаке list/group — иначе тёзка с картой попадёт в учредители.
+  const founder = founderOf(raw, r) || ((byList || byGroup) ? founderOf(row.guest, r) : null);
   const category = founder || founderWord ? FOUNDERS_CATEGORY : HOUSE_CATEGORY;
-  const table = String(row.table ?? '').trim() || code;
-  const label = name || (String(row.guest ?? '').trim()) || 'Тип оплаты не указан';
-  // Весь чек за счёт заведения → вся сумма до скидки; смешанная оплата без типа скидки → только списанная часть.
-  const whole = base === 'nonFiscal' || byGroup || founderWord;
-  return { name: label, category, founder, table, sum: whole ? gross : writeOff, rest: whole ? 0 : net, reason: base === 'nonFiscal' ? 'list' : byGroup ? 'group' : founderWord ? 'word' : 'no-revenue' };
+  const table = String(row.table ?? '').trim();
+  const label = name || ((byList || byGroup) ? String(row.guest ?? '').trim() : '') || 'Тип оплаты не указан';
+  return { name: label, category, founder, table, sum: gross, rest: 0, reason: byList ? 'list' : byGroup ? 'group' : founderWord ? 'word' : 'no-revenue' };
 }
 
 function isUnprintedCheque(fiscal) {
@@ -165,6 +172,6 @@ function paymentOf(name) {
 }
 
 module.exports = {
-  classification, floorOf, entityOf, paymentOf, isUnprintedCheque, founderOf, nonFiscalOf, isWriteoffGroup, splitPayName,
+  classification, floorOf, entityOf, paymentOf, isUnprintedCheque, founderOf, nonFiscalOf, isWriteoffGroup, isMoneyPay, splitPayName,
   rulesFromPrefs, normalize, DEFAULT_PROMO, DEFAULT_NON_FISCAL, DEFAULT_FOUNDERS, FOUNDERS_CATEGORY, HOUSE_CATEGORY
 };

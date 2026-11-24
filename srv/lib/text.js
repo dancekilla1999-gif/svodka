@@ -26,7 +26,7 @@ function discountTypes(o) {
   if (o.discount_by_type?.length) return o.discount_by_type;
   const map = new Map();
   for (const x of o.discount_details || []) {
-    const type = x.type || 'Тип не указан';
+    const type = x.type || 'Тип не указан — проверить';
     const e = map.get(type) || { type, sum: 0, count: 0 };
     e.sum += Number(x.sum || 0);
     e.count += 1;
@@ -35,7 +35,7 @@ function discountTypes(o) {
   if (map.size) return [...map.values()].sort((a, b) => b.sum - a.sum);
   const byType = new Map();
   for (const x of o.discounts || []) {
-    const type = x.type || 'Тип не указан';
+    const type = x.type || 'Тип не указан — проверить';
     const e = byType.get(type) || { type, sum: 0, count: 0 };
     e.sum += Number(x.sum || 0);
     e.count += 1;
@@ -65,7 +65,7 @@ function writeOffLines(o) {
   const others = rows.filter((x) => x.category !== FOUNDERS);
   const count = (list) => list.reduce((s, x) => s + Number(x.count || 0), 0);
   const T = [tableRow('Тип оплаты', 'Стол', 'Чек', 'Сумма ₽')];
-  const line = (x) => T.push(tableRow(x.type || '—', x.table || '', x.count || '—', num0(x.sum)));
+  const line = (x) => T.push(tableRow(x.type || '—', x.table || '—', x.count || '—', num0(x.sum)));
   if (founders.length) {
     T.push('— Учредительские столы —');
     founders.forEach(line);
