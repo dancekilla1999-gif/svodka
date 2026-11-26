@@ -90,6 +90,13 @@
     return el("div", { class: "tb-plans" }, el("legend", { text: list.length > 1 ? "Тариф" : "Ваш тариф" }), fs);
   }
   function trioLink() { return el("a", { class: "tb-trio", href: C.trio, target: "_blank", rel: "noopener" }, el("span", { text: "Нужны все три сервиса — обучение, журналы и отчёты из iiko?" }), el("b", { text: "Пакет «Трио» 5 990 ₽ →" })); }
+  function docLink(href, text) { return el("a", { href: href, target: "_blank", rel: "noopener", text: text }); }
+  function agreeBox(id, parts) {
+    var input = el("input", { type: "checkbox", id: id });
+    var span = el("span");
+    parts.forEach(function (p) { span.appendChild(typeof p === "string" ? document.createTextNode(p) : p); });
+    return { input: input, label: el("label", { class: "tb-agree", for: id }, input, span) };
+  }
 
   // ---------- регистрация: добавляем выбор тарифа в форму
   function enhanceRegister() {
@@ -98,13 +105,12 @@
     var btn = form.querySelector("button[type=submit]"); if (!btn) return;
     var list = plans(); var cur = defaultPlan(list); sset(PICK, cur);
     var box = picker(list, cur, function (code) { sset(PICK, code); });
-    btn.parentNode.insertBefore(box, btn.previousElementSibling && btn.previousElementSibling.getAttribute("role") === "alert" ? btn.previousElementSibling : btn);
-    var agree = el("input", { type: "checkbox", id: "tb_agree" });
-    var lab = el("label", { class: "tb-agree", for: "tb_agree" }, agree, el("span", null, "Принимаю ",
-      el("a", { href: "/legal/offer", target: "_blank", rel: "noopener", text: "оферту" }), " и даю ",
-      el("a", { href: "/legal/consent", target: "_blank", rel: "noopener", text: "согласие на обработку персональных данных" }), " по ",
-      el("a", { href: "/legal/privacy", target: "_blank", rel: "noopener", text: "политике" })));
-    btn.parentNode.insertBefore(lab, btn);
+    var anchor = btn.previousElementSibling && btn.previousElementSibling.getAttribute("role") === "alert" ? btn.previousElementSibling : btn;
+    var offer = agreeBox("tb_offer", ["Принимаю ", docLink("/legal/offer", "публичную оферту"), "."]);
+    var consent = agreeBox("tb_consent", ["Даю отдельное ", docLink("/legal/consent", "согласие на обработку персональных данных"), " по ", docLink("/legal/privacy", "политике конфиденциальности"), "."]);
+    btn.parentNode.insertBefore(box, anchor);
+    btn.parentNode.insertBefore(offer.label, anchor);
+    btn.parentNode.insertBefore(consent.label, anchor);
     btn.parentNode.insertBefore(el("p", { class: "tb-note", text: "7 дней бесплатно, карта не нужна. Тариф можно поменять в любой момент." }), btn.nextSibling);
     if (btn.textContent.indexOf("7 дн") < 0) btn.textContent = "Создать аккаунт — 7 дней бесплатно";
   }
@@ -182,18 +188,39 @@
           var all = el("button", { type: "button", class: "btn wide", text: "Оплатить пакет «Трио» — 5 990 ₽ за все три сервиса" });
           all.addEventListener("click", function () { startPay("trio", all, out); });
           payBox.appendChild(one); payBox.appendChild(all); payBox.appendChild(out);
-          payBox.appendChild(el("p", { class: "tb-note" }, "Оплата через ЮKassa: карта, СБП, ЮMoney, SberPay. Автосписаний нет. ",
-            el("a", { href: "/legal/offer", target: "_blank", rel: "noopener", text: "Оферта" })));
+          payBox.appendChild(el("p", { class: "tb-note" }, "Оплата через ЮKassa: карта, СБП, ЮMoney, SberPay. Автосписаний нет. Номер карты вводит платёжная страница. ",
+            docLink("/legal/offer", "Оферта"), ", ", docLink("/legal/consent", "согласие"), " и ", docLink("/legal/privacy", "политика"), " — те же, что при регистрации."));
         } else {
           var phone = el("input", { type: "tel", inputmode: "tel", autocomplete: "tel", placeholder: "Телефон для связи (необязательно)", maxlength: "40" });
+          var payConsent = agreeBox("tb_pay_consent", ["Даю ", docLink("/legal/consent", "согласие"), " на обработку этого телефона для счёта по ", docLink("/legal/privacy", "политике конфиденциальности"), "."]);
           var ok = el("p", { class: "tb-note" });
           var inv = el("button", { type: "button", class: "btn wide", text: "Запросить счёт на оплату" });
           inv.addEventListener("click", function () {
-            inv.disabled = true; ok.textContent = "";
+            var raw = phone.value.trim();
+            var digits = raw.replace(/\D/g, "");
+            ok.textContent = "";
+            payConsent.label.classList.remove("tb-need");
+            if (raw && digits.length < 10) { ok.textContent = "Проверьте номер телефона"; phone.focus(); return; }
+            if (raw && !payConsent.input.checked) {
+              payConsent.label.classList.add("tb-need");
+              ok.textContent = "Чтобы указать телефон, нужно согласие на его обработку.";
+              payConsent.input.focus();
+              return;
+            }
+            inv.disabled = true;
             api("invoice", { p_token: token(), p_phone: phone.value, p_comment: "" }).then(function () { ok.textContent = "Готово — пришлём счёт на почту аккаунта в течение рабочего дня."; })
               .catch(function (e) { ok.textContent = e.message; }).then(function () { inv.disabled = false; });
           });
-          payBox.appendChild(el("div", { class: "tb-row" }, phone)); payBox.appendChild(inv); payBox.appendChild(ok);
+          payConsent.input.addEventListener("change", function () {
+            if (!payConsent.input.checked) return;
+            payConsent.label.classList.remove("tb-need");
+            if (ok.textContent === "Чтобы указать телефон, нужно согласие на его обработку.") ok.textContent = "";
+          });
+          payBox.appendChild(el("div", { class: "tb-row" }, phone));
+          payBox.appendChild(payConsent.label);
+          payBox.appendChild(inv);
+          payBox.appendChild(ok);
+          payBox.appendChild(el("p", { class: "tb-note" }, "Счёт выставляется по ", docLink("/legal/offer", "оферте"), "."));
         }
       });
       box.appendChild(el("button", { type: "button", class: "btn ghost wide", text: "Закрыть", onclick: close }));
@@ -205,26 +232,46 @@
     var r = box.querySelector("input[type=radio]:checked") || box.querySelector("button"); if (r) r.focus();
   }
 
-  // без согласия форму регистрации не отправляем (перехват до обработчика приложения)
+  // без двух отдельных отметок форму регистрации не отправляем (перехват до обработчика приложения)
   document.addEventListener("submit", function (e) {
     if (path() !== "/register") return;
-    var a = document.getElementById("tb_agree");
-    if (a && !a.checked) {
-      e.preventDefault(); e.stopImmediatePropagation();
-      var lab = a.closest("label"); if (lab) lab.classList.add("tb-need");
-      var form = a.closest("form");
-      var err = form && form.querySelector(".form-err");
-      if (err) err.textContent = "Подтвердите согласие с офертой.";
-      if (!a._svNoted) {
-        a._svNoted = true;
-        a.addEventListener("change", function () {
-          if (!a.checked) return;
-          if (lab) lab.classList.remove("tb-need");
-          if (err && err.textContent === "Подтвердите согласие с офертой.") err.textContent = "";
+    var offer = document.getElementById("tb_offer");
+    var consent = document.getElementById("tb_consent");
+    if (!offer || !consent) return;
+    var missing = [];
+    if (!offer.checked) missing.push(offer);
+    if (!consent.checked) missing.push(consent);
+    [offer, consent].forEach(function (box) {
+      var lab = box.closest("label");
+      if (lab) lab.classList.toggle("tb-need", missing.indexOf(box) >= 0);
+    });
+    if (!missing.length) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    var form = offer.closest("form");
+    var err = form && form.querySelector(".form-err");
+    var msg = missing.length === 2
+      ? "Примите оферту и дайте отдельное согласие на обработку персональных данных."
+      : (missing[0] === offer ? "Примите оферту." : "Нужно отдельное согласие на обработку персональных данных.");
+    if (err) err.textContent = msg;
+    if (!offer._svNoted) {
+      offer._svNoted = true;
+      function sync() {
+        var still = [];
+        if (!offer.checked) still.push(offer);
+        if (!consent.checked) still.push(consent);
+        [offer, consent].forEach(function (box) {
+          var lab = box.closest("label");
+          if (lab) lab.classList.toggle("tb-need", still.indexOf(box) >= 0);
         });
+        if (!err) return;
+        if (!still.length) err.textContent = "";
+        else if (still.length === 2) err.textContent = "Примите оферту и дайте отдельное согласие на обработку персональных данных.";
+        else err.textContent = still[0] === offer ? "Примите оферту." : "Нужно отдельное согласие на обработку персональных данных.";
       }
-      a.focus();
+      offer.addEventListener("change", sync);
+      consent.addEventListener("change", sync);
     }
+    missing[0].focus();
   }, true);
 
   // уведомление о cookies

@@ -36,6 +36,12 @@ function testConfig() {
   assert.match(render, /function edition\(/);
   assert.doesNotMatch(render, /C\.updated\) \+ "/);
   assert.match(render, /table-scroll/);
+  assert.match(render, /data-label/);
+  assert.match(render, /не на чём/);
+  assert.doesNotMatch(render, /не на чем/);
+  assert.match(render, /две разные галочки/);
+  assert.match(render, /Статья 26\.1/);
+  assert.doesNotMatch(render, /платёжная сторона/);
 }
 
 function testLinks() {
@@ -52,10 +58,17 @@ function testLinks() {
   assert.match(read('public/index.html'), /href="\/legal\/cookies"/);
   assert.match(read('public/index.html'), /href="\/legal\/offer"/);
   assert.match(read('public/js/main.js'), /href="\/legal\/cookies"/);
-  assert.match(read('public/app/trio-bill.js'), /\/legal\/offer/);
-  assert.match(read('public/app/trio-bill.js'), /\/legal\/consent/);
-  assert.match(read('public/app/trio-bill.js'), /\/legal\/privacy/);
-  assert.match(read('public/app/trio-bill.js'), /\/legal\/cookies/);
+  const bill = read('public/app/trio-bill.js');
+  assert.match(bill, /\/legal\/offer/);
+  assert.match(bill, /\/legal\/consent/);
+  assert.match(bill, /\/legal\/privacy/);
+  assert.match(bill, /\/legal\/cookies/);
+  assert.match(bill, /tb_offer/);
+  assert.match(bill, /tb_consent/);
+  assert.match(bill, /tb_pay_consent/);
+  assert.doesNotMatch(bill, /tb_agree/);
+  const app = read('public/app/app.js');
+  ['/legal/offer', '/legal/privacy', '/legal/consent', '/legal/cookies'].forEach((href) => assert.match(app, new RegExp(href.replace(/\//g, '\\/'))));
   assert.match(read('vercel.json'), /\/legal\/:doc/);
 }
 

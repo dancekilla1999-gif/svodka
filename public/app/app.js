@@ -48,6 +48,12 @@
         }))));
   }
   function page() { var m = h("main", { class: "wrap page" }); for (var i = 0; i < arguments.length; i++) SV.add(m, arguments[i]); return m; }
+  function legalLinks() {
+    return h("nav", { class: "legal-foot", "aria-label": "Документы" },
+      [["/legal/offer", "Оферта"], ["/legal/privacy", "Политика конфиденциальности"], ["/legal/consent", "Согласие на обработку данных"], ["/legal/cookies", "Cookies"]].map(function (x) {
+        return h("a", { href: x[0], text: x[1] });
+      }));
+  }
 
   SV.app = { me: me, tok: tok, call: call, server: server, need: need, fail: fail, onAuth: onAuth, topbar: topbar, page: page, money: money, int: int, pct: pct, dayShort: dayShort, dayLong: dayLong, mskDay: mskDay, table: function () { return table.apply(null, arguments); } };
 
@@ -59,7 +65,8 @@
       h("p", { class: "center muted", text: "Отчёт собственнику после каждой смены — из iiko в Telegram" }),
       h("div", { class: "card form" },
         h("a", { class: "btn primary wide", href: "#/register", text: "Попробовать бесплатно" }),
-        h("a", { class: "btn wide", href: "#/login", text: "Войти" }))));
+        h("a", { class: "btn wide", href: "#/login", text: "Войти" })),
+      legalLinks()));
   });
   function authPage(mode) {
     var email = h("input", { type: "email", id: "email", name: "email", autocomplete: "username", required: true });
@@ -91,7 +98,8 @@
         h("label", null, "Почта", email),
         h("label", null, "Пароль" + (mode === "register" ? " (от 8 символов)" : ""), pass), err, btn,
         (function () { try { return sessionStorage.getItem("sv_return"); } catch (e) { return null; } })() ? h("p", { class: "small center muted", text: "После входа откроется полный отчёт по смене." }) : null,
-        h("p", { class: "small center" }, mode === "login" ? h("a", { class: "auth-alt", href: "#/register", text: "Нет аккаунта? Регистрация" }) : h("a", { class: "auth-alt", href: "#/login", text: "Уже есть аккаунт? Войти" })))));
+        h("p", { class: "small center" }, mode === "login" ? h("a", { class: "auth-alt", href: "#/register", text: "Нет аккаунта? Регистрация" }) : h("a", { class: "auth-alt", href: "#/login", text: "Уже есть аккаунт? Войти" }))),
+      legalLinks()));
   }
   SV.route("/login", function () { authPage("login"); });
   SV.route("/register", function () { authPage("register"); });
@@ -379,7 +387,7 @@
           h("label", null, "Логин", login),
           h("label", null, "Пароль", pass),
           depBox, err, h("div", { class: "row" }, btnTest, btnSave),
-          h("p", { class: "small muted", text: "Пароль шифруется и хранится только в зашифрованном виде; расшифровать его может лишь сервер отчётов. Мы только читаем отчёты — ничего не меняем в iiko." })),
+          h("p", { class: "small muted" }, "Пароль шифруется и хранится только в зашифрованном виде; расшифровать его может лишь сервер отчётов. Мы только читаем отчёты — ничего не меняем в iiko. Логин и пароль обрабатываются по ", h("a", { href: "/legal/privacy", text: "политике конфиденциальности" }), ", согласие даётся отдельной галочкой при регистрации.")),
         h("div", { class: "card form" }, h("h2", { text: "Как подготовить доступ" }),
           h("ol", { class: "steps" },
             h("li", null, h("span", null, "В iikoOffice создайте отдельного пользователя, например ", h("code", { class: "kbd", text: "svodka" }), ".")),
@@ -482,7 +490,8 @@
           btn);
       })(),
       h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Тариф" }),
-        h("p", { class: "muted small", text: "Пробный период — 7 дней, все функции и все агенты открыты. «Смена» 1 990 ₽/мес — отчёт по смене, агенты «Смена» и «Закупки»; «Контроль» 2 990 ₽/мес — вся команда агентов: финансы и прибыль, персонал, меню, ИИ-управляющий в Telegram; «Сеть» 4 990 ₽/мес — до 5 точек." })),
+        h("p", { class: "muted small", text: "Пробный период — 7 дней, все функции и все агенты открыты. «Смена» 1 990 ₽/мес — отчёт по смене, агенты «Смена» и «Закупки»; «Контроль» 2 990 ₽/мес — вся команда агентов: финансы и прибыль, персонал, меню, ИИ-управляющий в Telegram; «Сеть» 4 990 ₽/мес — до 5 точек." }),
+        legalLinks()),
       h("section", { class: "card form", style: "max-width:720px" }, h("button", { class: "btn ghost", text: "Выйти из аккаунта", onclick: function () {
         call("sv_logout").catch(function () {}).then(function () { setMe(null); SV.go("/"); });
       } })));

@@ -294,14 +294,17 @@ footer{border-top:1px solid var(--line);padding:50px 0 60px;background:rgba(7,6,
 .legal .draft{margin:20px 0;padding:14px 18px;border-radius:14px;border:1px solid rgba(255,138,61,.45);background:rgba(255,138,61,.08);color:var(--gold2);font-size:14px}
 .legal .ph{color:#ffb15c}
 .legal-links{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:34px;padding-top:22px;border-top:1px solid var(--line)}
-.legal-links a{font-size:13px;color:var(--faint)}
+.legal-links a{display:inline-flex;align-items:center;min-height:44px;font-size:13px;color:var(--faint)}
 .legal-links a:hover{color:var(--ink)}
 .form .agree a{color:var(--gold2);text-decoration:underline;text-underline-offset:2px}
 /* ---------- уведомление о cookies ---------- */
-.ck{position:fixed;z-index:70;left:16px;bottom:16px;max-width:440px;display:flex;gap:14px;align-items:center;padding:14px 16px;border-radius:18px;border:1px solid var(--line2);background:rgba(14,11,8,.94);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);font-size:13px;color:var(--dim);box-shadow:0 20px 50px -25px rgba(0,0,0,.9)}
+.ck{position:fixed;z-index:70;left:16px;bottom:16px;max-width:min(440px,calc(100% - 32px));display:flex;gap:14px;align-items:center;padding:14px 16px;border-radius:18px;border:1px solid var(--line2);background:rgba(14,11,8,.94);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);font-size:13px;color:var(--dim);box-shadow:0 20px 50px -25px rgba(0,0,0,.9)}
 .ck a{color:var(--gold2);text-decoration:underline}
 .ck button{flex:none;min-height:40px;padding:0 18px;border-radius:999px;border:0;background:linear-gradient(135deg,var(--gold2),var(--gold) 55%,var(--amber));color:#160e05;font-weight:700}
-@media(max-width:520px){.ck{right:16px;max-width:none}}
+.ck>span{min-width:0;flex:1 1 auto}
+body:has(.ck){padding-bottom:140px}
+html:has(.ck){scroll-padding-bottom:150px}
+@media(max-width:520px){.ck{right:16px;left:16px;max-width:none;align-items:flex-start}.ck button{min-height:44px}body:has(.ck){padding-bottom:200px}html:has(.ck){scroll-padding-bottom:210px}}
 /* Safari: градиентный текст не рисуется у потомков с transform — красим сами слова */
 .split em{background:none;-webkit-text-fill-color:currentColor;color:var(--acc2)}
 .split em .w>span{background:linear-gradient(120deg,var(--acc2),var(--acc) 60%,var(--amber));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;padding-right:.06em}
