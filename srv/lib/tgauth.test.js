@@ -73,13 +73,14 @@ async function wipe() {
     sv.security_minute, sv.login_attempts, sv.invites, public.sv_legal_consent, sv.owners restart identity cascade`);
 }
 async function register(tag, password) {
-  const code = crypto.randomBytes(16).toString('base64url');
-  await db.call('sv_invite_issue', { p_secret: process.env.TG_SESSION_SECRET, p_code: code, p_hours: 48 });
-  const r = await hit(session.register, {
-    body: {
-      email: email(tag), password: password || 'password123', name: 'Егор', invite: code,
-      offer: true, consent: true, doc_version: '2026-11-26.3', device_label: 'Chrome · Windows'
-    }
+  const addr = email(tag);
+  const pass = password || 'password123';
+  await db.query(
+    `insert into sv.owners (email, pass_hash, name) values ($1, extensions.crypt($2, extensions.gen_salt('bf', 10)), 'Егор')`,
+    [addr, pass]
+  );
+  const r = await hit(session.login, {
+    body: { email: addr, password: pass, device_label: 'Chrome · Windows' }
   });
   assert.equal(r.status, 200, r.raw);
   assert.equal(r.json.refresh, undefined);
@@ -438,6 +439,136 @@ test('срок initData на /auth и /login и это не я', async () => {
   const ev = await db.query(`select count(*)::int as n from sv.auth_events where kind = 'tg_unlink_disputed'`);
   assert.equal(ev.rows[0].n, 1);
   assert.equal((await db.query('select count(*)::int as n from sv.tg_links where tg_user_id = 9800')).rows[0].n, 0);
+});
+
+test('перестановка и перекодирование того же initData не дают второй вход', async () => {
+  const acc = await register('reorder', 'password123');
+  const raw = initData(Object.assign(user(9910), { first_name: 'Егор Бондарев' }), nowSec());
+  const first = await hit(session.tgLogin, { body: authBody(raw, 'ord-1', { email: acc.email, password: 'password123', consent: true }) });
+  assert.equal(first.status, 200, first.raw);
+  const reversed = new URLSearchParams();
+  [...new URLSearchParams(raw).entries()].reverse().forEach(([k, v]) => reversed.append(k, v));
+  assert.notEqual(reversed.toString(), raw);
+  const second = await hit(session.tgLogin, { body: authBody(reversed.toString(), 'ord-2', { email: acc.email, password: 'password123', consent: true }) });
+  assert.equal(second.status, 401);
+  assert.equal(second.json.error, 'REPLAY');
+  assert.equal(second.json.token, undefined);
+
+  const acc2 = await register('reorder-enc', 'password123');
+  const spaced = initData(Object.assign(user(9911), { first_name: 'Егор Бондарев' }), nowSec());
+  const encoded = spaced.replace(/\+/g, '%20');
+  assert.notEqual(spaced, encoded);
+  const plus = await hit(session.tgLogin, { body: authBody(spaced, 'enc-1', { email: acc2.email, password: 'password123', consent: true }) });
+  assert.equal(plus.status, 200, plus.raw);
+  const pct = await hit(session.tgLogin, { body: authBody(encoded, 'enc-2', { email: acc2.email, password: 'password123', consent: true }) });
+  assert.equal(pct.status, 401);
+  assert.equal(pct.json.error, 'REPLAY');
+  assert.equal(pct.json.token, undefined);
+});
+
+test('migrate обменивает только legacy, access и tg отклоняет', async () => {
+  const acc = await register('mig');
+  const legacy = crypto.randomBytes(24).toString('base64url');
+  await db.query(
+    `insert into sv.sessions (token_hash, owner_id, expires_at, kind, token_use)
+     select sv.hash_token($1), id, now() + interval '30 days', 'legacy', 'access' from sv.owners where email = $2`,
+    [legacy, acc.email]
+  );
+  const ok = await hit(session.migrate, { body: { token: legacy, device_label: 'Старый сайт' } });
+  assert.equal(ok.status, 200, ok.raw);
+  assert.ok(ok.json.token);
+  assert.match(ok.headers['set-cookie'], /sv_rt=/);
+  assert.match(ok.headers['set-cookie'], /Max-Age=31536000/);
+  const access = await hit(session.migrate, { body: { token: acc.token } });
+  assert.equal(access.status, 403);
+  assert.equal(access.json.hint, 'forbidden');
+  const issued = await hit(session.linkCode, { headers: { authorization: 'Bearer ' + acc.token } });
+  const tg = await hit(session.tgLink, { body: authBody(initData(user(9920), nowSec()), 'mig-dev', { code: issued.json.code, consent: true }) });
+  assert.equal(tg.status, 200, tg.raw);
+  const tgNo = await hit(session.migrate, { body: { token: tg.json.token } });
+  assert.equal(tgNo.status, 403);
+  assert.equal(tgNo.json.hint, 'forbidden');
+});
+
+test('приглашение только у платформенного админа, роль фиксирована, цепочка закрыта', async () => {
+  const owner = await register('own');
+  const manager = await register('mgr');
+  await db.query(`update sv.owners set staff_role = 'manager' where email = $1`, [manager.email]);
+  const userAcc = await register('user');
+  for (const token of [owner.token, manager.token, userAcc.token]) {
+    const denied = await hit(session.invite, { headers: { authorization: 'Bearer ' + token }, body: { role: 'manager' } });
+    assert.equal(denied.status, 403, denied.raw);
+    assert.equal(denied.json.hint, 'forbidden');
+  }
+  assert.equal((await db.query('select count(*)::int as n from sv.invites')).rows[0].n, 0);
+
+  const issued = await hit(session.linkCode, { headers: { authorization: 'Bearer ' + owner.token } });
+  const tg = await hit(session.tgLink, { body: authBody(initData(user(9930), nowSec()), 'inv-dev', { code: issued.json.code, consent: true }) });
+  assert.equal(tg.status, 200, tg.raw);
+  const prev = process.env.ADMIN_TELEGRAM_IDS;
+  process.env.ADMIN_TELEGRAM_IDS = '9930';
+  let code = '';
+  try {
+    const deniedTg = await hit(session.invite, { headers: { authorization: 'Bearer ' + tg.json.token }, body: { role: 'manager' } });
+    assert.equal(deniedTg.status, 403, deniedTg.raw);
+    const byWeb = await hit(session.invite, { headers: { authorization: 'Bearer ' + owner.token }, body: { role: 'manager' } });
+    assert.equal(byWeb.status, 200, byWeb.raw);
+    assert.equal(byWeb.json.role, 'owner');
+    code = byWeb.json.code;
+  } finally {
+    if (prev == null) delete process.env.ADMIN_TELEGRAM_IDS;
+    else process.env.ADMIN_TELEGRAM_IDS = prev;
+  }
+  const stored = await db.query('select role from sv.invites where code_hash = sv.hash_token($1)', [code]);
+  assert.equal(stored.rows[0].role, 'owner');
+
+  const addr = email('newbie');
+  const created = await db.call('sv_web_register', {
+    p_secret: process.env.TG_SESSION_SECRET,
+    p_email: addr,
+    p_password: 'password123',
+    p_name: 'Новый',
+    p_invite: code,
+    p_offer: true,
+    p_consent: true,
+    p_doc_version: '2026-11-26.3',
+    p_device_label: 'Chrome',
+    p_ip_hash: 'hash',
+    p_ip: '',
+    p_ua: 'test'
+  });
+  const flags = await db.query('select platform_admin, staff_role from sv.owners where email = $1', [addr]);
+  assert.equal(flags.rows[0].platform_admin, false);
+  assert.equal(flags.rows[0].staff_role, 'owner');
+  const chain = await hit(session.invite, { headers: { authorization: 'Bearer ' + created.access }, body: { role: 'manager' } });
+  assert.equal(chain.status, 403, chain.raw);
+  try {
+    await db.call('sv_web_register', {
+      p_secret: process.env.TG_SESSION_SECRET,
+      p_email: email('guess'),
+      p_password: 'password123',
+      p_name: 'Чужой',
+      p_invite: 'y'.repeat(24),
+      p_offer: true,
+      p_consent: true,
+      p_doc_version: '2026-11-26.3',
+      p_device_label: 'Chrome',
+      p_ip_hash: 'hash',
+      p_ip: '',
+      p_ua: 'test'
+    });
+    assert.fail('чужой код не должен регистрировать');
+  } catch (e) {
+    assert.equal(e.hint, 'invite');
+  }
+  const httpClosed = await hit(session.register, {
+    body: {
+      email: email('http'), password: 'password123', name: 'Чужой', invite: 'z'.repeat(24),
+      offer: true, consent: true, doc_version: '2026-11-26.3'
+    }
+  });
+  assert.equal(httpClosed.status, 400);
+  assert.equal(httpClosed.json.hint, 'operator');
 });
 
 test('в логах нет initData', () => {

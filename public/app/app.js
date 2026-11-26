@@ -79,7 +79,11 @@
     var C = window.SV_LEGAL;
     if (!C || !C.operator) return ["реквизиты оператора"];
     var gaps = [];
-    [["название", C.operator.name], ["ИНН", C.operator.inn], ["ОГРН", C.operator.ogrn], ["адрес", C.operator.address], ["почта", C.operator.email]].forEach(function (f) {
+    var selfEmployed = String(C.operator.personStatus || "") === "самозанятый";
+    var fields = selfEmployed
+      ? [["ФИО", C.operator.personName], ["ИНН", C.operator.inn]]
+      : [["название", C.operator.name], ["ИНН", C.operator.inn], ["ОГРН", C.operator.ogrn], ["адрес", C.operator.address], ["почта", C.operator.email]];
+    fields.forEach(function (f) {
       if (f[1] == null || !String(f[1]).trim() || String(f[1]).indexOf("[УКАЖИТЕ") === 0) gaps.push(f[0]);
     });
     if (!docVersion()) gaps.push("редакцию документов");

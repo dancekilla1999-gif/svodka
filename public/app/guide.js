@@ -4,6 +4,7 @@
    Подключение: <script src="guide.js" data-product="pd|zh|sv" data-store="ключ localStorage" data-field="поле с токеном"></script> */
 (function () {
   "use strict";
+  if (window.SV_TG) return;
   var me = document.currentScript;
   if (!me) return;
   var P = me.getAttribute("data-product"), STORE = me.getAttribute("data-store"), FIELD = me.getAttribute("data-field") || "";

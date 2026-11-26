@@ -327,6 +327,8 @@ async function dailyTip(shiftRes, purchRes) {
 const ASK_SYS = 'Ты — ИИ-управляющий в сервисе «Сводка» (данные из iiko одного заведения). Отвечай собственнику по-русски, на «вы», коротко и по делу: сначала прямой ответ с цифрами из данных, потом 1–3 конкретных совета. ' +
   'Используй только переданные данные; если нужных данных нет — честно скажи, каких именно (например, «не внесены расходы на аренду» или «iiko не отдал себестоимость»), и как их добавить. Не выдумывай цифры. До 1200 знаков, без markdown-таблиц.';
 function compactCtx(ctx) {
+  const { rosterFrom, maskValue } = require('./roles');
+  const roster = rosterFrom(ctx);
   const days = (ctx.reports || []).map((r) => {
     const t = (r.data && r.data.totals) || {}, pr = r.data && r.data.profit;
     return { day: r.day, выручка: r2(t.revenue), чеков: t.orders, средний_чек: r2(t.avg_check), себестоимость: t.cost, скидки: r2(t.discount), удаления: r2(t.deleted_sum), прибыль: pr ? pr.profit : null,
@@ -338,15 +340,18 @@ function compactCtx(ctx) {
   const fin = (ctx.insights || []).find((i) => i.agent === 'finance');
   const priceUp = {};
   (ctx.prices || []).forEach((p) => { priceUp[p.name] = priceUp[p.name] || []; priceUp[p.name].push(`${p.day}: ${r2(p.price)} ₽${p.unit ? '/' + p.unit : ''}${p.supplier ? ' (' + p.supplier + ')' : ''}`); });
-  return { режим: ctx.mode === 'demo' ? 'демо-данные' : 'iiko', дни: days, агенты: ins, неделя_PnL: fin && fin.data && fin.data.pnl, расходы_владельца: (ctx.expenses || []).map((e) => `${e.name} (${CAT[e.category] || e.category}): ${e.amount}${e.kind === 'percent' ? '% от выручки' : e.kind === 'month' ? ' ₽/мес' : e.kind === 'week' ? ' ₽/нед' : ' ₽ разово ' + (e.day || '')}`),
+  const body = { режим: ctx.mode === 'demo' ? 'демо-данные' : 'iiko', дни: days, агенты: ins, неделя_PnL: fin && fin.data && fin.data.pnl, расходы_владельца: (ctx.expenses || []).map((e) => `${e.name} (${CAT[e.category] || e.category}): ${e.amount}${e.kind === 'percent' ? '% от выручки' : e.kind === 'month' ? ' ₽/мес' : e.kind === 'week' ? ' ₽/нед' : ' ₽ разово ' + (e.day || '')}`),
     цены_закупок: Object.keys(priceUp).slice(0, 60).map((k) => `${k}: ${priceUp[k].slice(-4).join('; ')}`), цели: prefsOf(ctx.prefs) };
+  return maskValue(body, roster);
 }
 async function answer(question, ctx) {
   const q = String(question || '').trim().slice(0, 1500);
   if (!q) throw new Error('Задайте вопрос');
+  const { rosterFrom, maskStaff } = require('./roles');
+  const roster = rosterFrom(ctx);
   if (ai.enabled()) {
     const msgs = [{ role: 'system', content: ASK_SYS + '\n\nДанные заведения (JSON):\n' + JSON.stringify(compactCtx(ctx)).slice(0, 26000) }];
-    (ctx.chat || []).slice(-6).forEach((m) => msgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.text).slice(0, 1500) }));
+    (ctx.chat || []).slice(-6).forEach((m) => msgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: maskStaff(String(m.text).slice(0, 1500), roster) }));
     msgs.push({ role: 'user', content: q });
     try { return { text: ai.clean(await ai.chat(msgs, { maxTokens: 900 })), by_ai: true }; } catch (e) { console.error('answer', e.message); }
   }

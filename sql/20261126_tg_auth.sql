@@ -22,9 +22,14 @@ create table if not exists public.sv_legal_consent (
 );
 
 alter table sv.owners add column if not exists disabled_at timestamptz;
+alter table sv.owners add column if not exists platform_admin boolean not null default false;
+alter table sv.owners add column if not exists staff_role text not null default 'owner';
 
 alter table sv.sessions add column if not exists id uuid default gen_random_uuid();
-alter table sv.sessions add column if not exists kind text not null default 'web';
+alter table sv.sessions add column if not exists kind text;
+update sv.sessions set kind = 'legacy' where kind is null;
+alter table sv.sessions alter column kind set default 'web';
+alter table sv.sessions alter column kind set not null;
 alter table sv.sessions add column if not exists token_use text not null default 'access';
 alter table sv.sessions add column if not exists chain_id uuid;
 alter table sv.sessions add column if not exists tg_user_id bigint;
@@ -46,7 +51,7 @@ create index if not exists sessions_tg_device on sv.sessions (tg_user_id, device
 do $checks$
 begin
   if not exists (select 1 from pg_constraint where conname = 'sessions_kind_check') then
-    alter table sv.sessions add constraint sessions_kind_check check (kind in ('web', 'tg'));
+    alter table sv.sessions add constraint sessions_kind_check check (kind in ('web', 'tg', 'legacy'));
   end if;
   if not exists (select 1 from pg_constraint where conname = 'sessions_token_use_check') then
     alter table sv.sessions add constraint sessions_token_use_check check (token_use in ('access', 'refresh'));
@@ -110,8 +115,10 @@ create table if not exists sv.invites (
   created_at timestamptz not null default now(),
   expires_at timestamptz not null,
   used_at timestamptz,
-  used_by uuid
+  used_by uuid,
+  role text not null default 'owner'
 );
+alter table sv.invites add column if not exists role text not null default 'owner';
 
 create table if not exists sv.rate_hits (
   id bigint generated always as identity primary key,
@@ -526,8 +533,8 @@ begin
   if exists (select 1 from sv.owners o where o.id = c.owner_id and o.disabled_at is not null) then
     return jsonb_build_object('error', 'Аккаунт отключён', 'hint', 'disabled');
   end if;
-  perform sv.bind_tg(c.owner_id, p_tg_user_id, p_username, p_first_name);
   perform sv.consume_init(p_init_hash);
+  perform sv.bind_tg(c.owner_id, p_tg_user_id, p_username, p_first_name);
   update sv.tg_link_codes set used_at = now() where code_hash = c.code_hash and used_at is null;
   insert into sv.consents (owner_id, kind, version, tg_user_id)
   values (c.owner_id, 'tg_login', left(coalesce(p_version, ''), 40), p_tg_user_id);
@@ -588,8 +595,8 @@ begin
   if o.disabled_at is not null then
     return jsonb_build_object('error', 'Аккаунт отключён', 'hint', 'disabled');
   end if;
-  perform sv.bind_tg(o.id, p_tg_user_id, p_username, p_first_name);
   perform sv.consume_init(p_init_hash);
+  perform sv.bind_tg(o.id, p_tg_user_id, p_username, p_first_name);
   insert into sv.consents (owner_id, kind, version, tg_user_id)
   values (o.id, 'tg_login', left(coalesce(p_version, ''), 40), p_tg_user_id);
   t := sv.issue_tg_session(o.id, p_tg_user_id, coalesce(p_device_key, ''), p_device_label, p_ip_hash);
@@ -763,6 +770,7 @@ as $$
 declare e text := lower(btrim(coalesce(p_email, '')));
 declare o sv.owners;
 declare inv text;
+declare inv_role text;
 begin
   if coalesce(p_offer, false) is not true
      or coalesce(p_consent, false) is not true
@@ -784,14 +792,15 @@ begin
   if (select count(*) from sv.owners where created_at > now() - interval '1 hour') >= 30 then
     raise exception 'Слишком много регистраций, попробуйте через час' using hint = 'rate';
   end if;
-  select code_hash into inv from sv.invites
+  select code_hash, coalesce(nullif(role, ''), 'owner') into inv, inv_role from sv.invites
    where code_hash = sv.hash_token(p_invite) and used_at is null and expires_at > now()
    for update;
   if inv is null then
     raise exception 'Регистрация только по приглашению' using hint = 'invite';
   end if;
-  insert into sv.owners (email, pass_hash, name)
-  values (e, extensions.crypt(p_password, extensions.gen_salt('bf', 10)), sv.clean(p_name, 80))
+  if inv_role not in ('owner', 'manager') then inv_role := 'owner'; end if;
+  insert into sv.owners (email, pass_hash, name, staff_role, platform_admin)
+  values (e, extensions.crypt(p_password, extensions.gen_salt('bf', 10)), sv.clean(p_name, 80), inv_role, false)
   returning * into o;
   update sv.invites set used_at = now(), used_by = o.id where code_hash = inv and used_at is null;
   insert into public.sv_legal_consent (product, kind, email, phone_given, offer, consent, doc_version, ip, user_agent)
@@ -815,20 +824,44 @@ begin
 end
 $$;
 
-create or replace function public.sv_invite_issue(p_secret text, p_code text, p_hours int default 168)
-returns jsonb
+drop function if exists public.sv_invite_issue(text, text, integer);
+
+create or replace function public.sv_invite_issue(
+  p_secret text, p_token text, p_code text, p_hours int, p_admin_ids text[]
+) returns jsonb
 language plpgsql
 security definer
 set search_path to pg_catalog, sv
 as $$
+declare v uuid;
+declare skind text;
+declare admin boolean;
 begin
   perform sv.assert_secret(p_secret);
+  v := sv.owner_id(p_token);
+  select kind into skind from sv.sessions where token_hash = sv.hash_token(p_token);
+  if skind = 'tg' then
+    return jsonb_build_object('error', 'Приглашения выдаются только с сайта', 'hint', 'forbidden');
+  end if;
+  select o.platform_admin
+      or exists (
+        select 1 from sv.tg_links l
+        where l.owner_id = o.id
+          and p_admin_ids is not null
+          and l.tg_user_id::text = any(p_admin_ids)
+      )
+    into admin
+  from sv.owners o where o.id = v;
+  if coalesce(admin, false) is not true then
+    return jsonb_build_object('error', 'Приглашения выдаёт только администратор платформы', 'hint', 'forbidden');
+  end if;
   if p_code is null or length(p_code) < 22 then
     raise exception 'Слабый код' using hint = 'invalid';
   end if;
-  insert into sv.invites (code_hash, expires_at)
-  values (sv.hash_token(p_code), now() + make_interval(hours => least(greatest(coalesce(p_hours, 168), 1), 24 * 30)));
-  return jsonb_build_object('ok', true);
+  insert into sv.invites (code_hash, expires_at, role)
+  values (sv.hash_token(p_code), now() + make_interval(hours => least(greatest(coalesce(p_hours, 168), 1), 24 * 30)), 'owner');
+  perform sv.auth_event(v, 'invite_issued', null, null, null);
+  return jsonb_build_object('ok', true, 'role', 'owner');
 end
 $$;
 
@@ -922,8 +955,8 @@ begin
   if not found then
     return jsonb_build_object('error', 'Нужно войти', 'hint', 'auth');
   end if;
-  if r.kind = 'tg' then
-    return jsonb_build_object('error', 'Эта сессия уже из Telegram', 'hint', 'auth');
+  if r.kind is distinct from 'legacy' then
+    return jsonb_build_object('error', 'Эту сессию нельзя обменять', 'hint', 'forbidden');
   end if;
   pair := sv.issue_web_pair(r.owner_id, coalesce(p_device_label, r.device_label), p_ip_hash);
   update sv.sessions
@@ -1214,7 +1247,7 @@ begin
     'sv_web_register(text,text,text,text,text,boolean,boolean,text,text,text,text,text)',
     'sv_web_refresh(text,text,text,text,text,text,text,text,text)',
     'sv_web_migrate(text,text,text,text)',
-    'sv_invite_issue(text,text,integer)',
+    'sv_invite_issue(text,text,text,integer,text[])',
     'sv_tg_purge()',
     'sv_security_bump(text)',
     'sv_login(text,text)',

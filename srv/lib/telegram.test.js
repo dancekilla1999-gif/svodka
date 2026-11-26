@@ -44,6 +44,36 @@ test('порча любого поля, включая signature, даёт BAD_H
   }
 });
 
+test('ключ одноразовости — поле hash, перестановка и перекодирование его не меняют', () => {
+  const now = 1_700_000_000_000;
+  const raw = signed({ user: JSON.stringify(Object.assign({}, USER, { first_name: 'Егор Бондарев' })) }, Math.floor(now / 1000));
+  const params = parseInitData(raw);
+  const reversed = new URLSearchParams();
+  [...new URLSearchParams(raw).entries()].reverse().forEach(([k, v]) => reversed.append(k, v));
+  const encoded = raw.replace(/\+/g, '%20');
+  const a = validateInitData(raw, TOKEN, { now });
+  const b = validateInitData(reversed.toString(), TOKEN, { now });
+  const c = validateInitData(encoded, TOKEN, { now });
+  assert.equal(a.ok, true);
+  assert.equal(b.ok, true);
+  assert.equal(c.ok, true);
+  assert.equal(a.hash, params.hash.toLowerCase());
+  assert.equal(b.hash, a.hash);
+  assert.equal(c.hash, a.hash);
+  assert.notEqual(raw, reversed.toString());
+  assert.notEqual(raw, encoded);
+});
+
+test('initData без user отклоняется', () => {
+  const now = 1_700_000_000_000;
+  const raw = signInitData({ auth_date: String(Math.floor(now / 1000)), query_id: 'AAEtest', signature: 'ed25519-signature-field' }, TOKEN);
+  const res = validateInitData(raw, TOKEN, { now });
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'BAD_HASH');
+  const empty = signed({ user: '{}' }, Math.floor(now / 1000));
+  assert.equal(validateInitData(empty, TOKEN, { now }).error, 'BAD_HASH');
+});
+
 test('чужой токен не принимается', () => {
   const now = 1_700_000_000_000;
   const raw = signed({}, Math.floor(now / 1000));

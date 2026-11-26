@@ -117,7 +117,29 @@ function testOperatorGate() {
   assert.match(fail.stderr, /плейсхолдеры/);
 }
 
+function testSelfEmployed() {
+  const { operatorGaps } = require('./operator');
+  const live = operatorGaps();
+  assert.deepEqual(live, ['ИНН']);
+  const filled = operatorGaps({
+    operator: { personStatus: 'самозанятый', personName: 'Егор Бондарев', inn: '770000000000', name: '', ogrn: '' }
+  });
+  assert.deepEqual(filled, []);
+  const company = operatorGaps({
+    operator: { personStatus: 'юрлицо', name: 'ООО Ромашка', inn: '7700000000', ogrn: '', address: 'Москва', email: 'a@b.c' }
+  });
+  assert.deepEqual(company, ['ОГРН']);
+  const app = read('public/app/app.js');
+  assert.match(app, /personStatus/);
+  assert.match(app, /самозанятый/);
+  assert.match(app, /personName/);
+  const session = read('srv/api/session.js');
+  assert.match(session, /operatorGaps\(\)/);
+  assert.doesNotMatch(session, /REQUIRE_OPERATOR/);
+}
+
 testConfig();
 testLinks();
 testOperatorGate();
+testSelfEmployed();
 console.log('ok: legal pages');

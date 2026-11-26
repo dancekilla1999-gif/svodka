@@ -5,6 +5,7 @@ const { send, readBody, requestHost, publicUrl } = require('../lib/common');
 const { validateInitData } = require('../lib/telegram');
 const { sealPair, openPair } = require('../lib/grace');
 const db = require('../lib/authdb');
+const { operatorGaps } = require('../lib/operator');
 
 const CONSENT_VERSION = '2026-11-26.3';
 const AUTH_MAX_SEC = 10 * 60;
@@ -95,6 +96,7 @@ async function bump(kind) {
 function mapRow(res, row) {
   if (!row) return send(res, 500, { error: 'Ошибка сервера' });
   if (row.hint === 'rate') return send(res, 429, { error: row.error || 'Слишком много попыток, подождите 15 мин' });
+  if (row.hint === 'forbidden') return send(res, 403, { error: row.error || 'Недостаточно прав', hint: 'forbidden' });
   if (row.hint === 'consent') return send(res, 400, { error: row.error, hint: 'consent' });
   if (row.hint === 'invite') return send(res, 400, { error: row.error || 'Регистрация только по приглашению', hint: 'invite' });
   if (row.hint === 'taken') return send(res, 409, { error: row.error, hint: 'taken' });
@@ -260,6 +262,13 @@ async function register(req, res) {
   return post(req, res, async () => {
     if (webGuard(req, res)) return;
     const body = await readBody(req);
+    if (!body.invite || String(body.invite).length < 22) {
+      return send(res, 400, { error: 'Регистрация только по приглашению', hint: 'invite' });
+    }
+    const gaps = operatorGaps();
+    if (gaps.length) {
+      return send(res, 400, { error: 'Регистрация закрыта: в документах ещё нет реквизитов оператора', hint: 'operator' });
+    }
     const row = await db.call('sv_web_register', {
       p_secret: sessionSecret(),
       p_email: body.email,
@@ -427,15 +436,27 @@ async function linkDispute(req, res) {
   });
 }
 
+function adminTelegramIds() {
+  return String(process.env.ADMIN_TELEGRAM_IDS || '')
+    .split(/[\s,]+/)
+    .map((part) => part.trim())
+    .filter((part) => /^\d+$/.test(part));
+}
+
 async function invite(req, res) {
   return post(req, res, async () => {
     if (webGuard(req, res)) return;
-    await db.call('sv_session_touch', { p_token: bearer(req) });
     const code = crypto.randomBytes(16).toString('base64url');
-    const row = await db.call('sv_invite_issue', { p_secret: sessionSecret(), p_code: code, p_hours: 168 });
+    const row = await db.call('sv_invite_issue', {
+      p_secret: sessionSecret(),
+      p_token: bearer(req),
+      p_code: code,
+      p_hours: 168,
+      p_admin_ids: adminTelegramIds().length ? adminTelegramIds() : null
+    });
     const mapped = mapRow(res, row);
     if (mapped) return mapped;
-    return send(res, 200, { code: code, url: publicUrl(req) + '/app/#/register?invite=' + code });
+    return send(res, 200, { code: code, role: 'owner', url: publicUrl(req) + '/app/#/register?invite=' + code });
   });
 }
 

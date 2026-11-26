@@ -7,7 +7,7 @@ const { demoReport, demoPurchases } = require('./demo');
 const { collectPurchases } = require('./purchases');
 const { reportText, tgSend } = require('./text');
 const { reportOpenLink } = require('./common');
-const { maskStaff, staffNames } = require('./roles');
+const { maskStaff, rosterFrom } = require('./roles');
 const A = require('./agents');
 
 // доступ к базе от имени владельца: по токену (кабинет) или по секрету крона (сервер)
@@ -71,9 +71,12 @@ async function runDay(db, conn, day, opts = {}) {
   if (opts.chatId && opts.send !== false) {
     // Ссылка без # — Telegram и ins-браузеры часто отрезают якорь, и человек попадал на оболочку кабинета, а не в отчёт.
     const link = reportOpenLink(opts.base, saved.id);
-    const names = staffNames(report);
+    const names = rosterFrom(report);
     sent = await tgSend(opts.chatId, maskStaff(reportText(report, link, A.tgDailyExtra(pr, tip)), names)).catch(() => false);
-    if (week && prefs.weekly_tg) await tgSend(opts.chatId, A.tgWeekly(week.director, week.finance, opts.base ? `${opts.base}/app/#/agents` : null)).catch(() => false);
+    if (week && prefs.weekly_tg) {
+      const weekly = A.tgWeekly(week.director, week.finance, opts.base ? `${opts.base}/app/#/agents` : null);
+      await tgSend(opts.chatId, maskStaff(weekly, week.roster || names)).catch(() => false);
+    }
   }
   return { id: saved.id, sent, week: !!week, shift: sh, purchases: pr, tip };
 }
@@ -89,7 +92,7 @@ async function runWeek(db, day, opts = {}) {
   const dir = await A.director({ key: w.key, label, from: w.from, to: w.to }, [fin, st, mn, pw], { noAi: opts.noAi });
   await Promise.all([save(db, fin), save(db, st), save(db, mn), save(db, pw)]);
   await save(db, dir);
-  return { finance: fin, staff: st, menu: mn, purchases: pw, director: dir };
+  return { finance: fin, staff: st, menu: mn, purchases: pw, director: dir, roster: rosterFrom(ctx) };
 }
 
 module.exports = { dbFor, runDay, runWeek, save };

@@ -53,14 +53,14 @@ function validateInitData(initData, botToken, opts) {
   const nowSec = Math.floor(nowMs / 1000);
   if (authDate - nowSec > 60) return { ok: false, error: 'EXPIRED' };
   if (nowSec - authDate > maxAgeSec) return { ok: false, error: 'EXPIRED' };
+  if (!params.user) return { ok: false, error: 'BAD_HASH' };
   let user = {};
-  if (params.user) {
-    try { user = JSON.parse(params.user); } catch (e) { return { ok: false, error: 'BAD_HASH' }; }
-  }
+  try { user = JSON.parse(params.user); } catch (e) { return { ok: false, error: 'BAD_HASH' }; }
   const id = user && user.id != null ? user.id : null;
+  if (id == null || id === '') return { ok: false, error: 'BAD_HASH' };
   return {
     ok: true,
-    hash: crypto.createHash('sha256').update(initData).digest('hex'),
+    hash: hash.toLowerCase(),
     tgUserId: id == null ? null : String(id),
     user: {
       id: id,

@@ -73,6 +73,6 @@ jobs:
           node-version: 24
       - run: npm install
       - run: node scripts/db-bootstrap.js
-      - run: set -o pipefail && npm test | tee test-out.txt
+      - run: set -o pipefail && npm test -- --test-reporter=tap | tee test-out.txt
       - name: нет пропущенных тестов
-        run: grep -q '# skipped 0' test-out.txt
+        run: node scripts/check-skipped.js test-out.txt

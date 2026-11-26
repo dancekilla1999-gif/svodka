@@ -7,6 +7,7 @@ const { hookSecret, send, readBody, publicUrl } = require('../lib/common');
 const { tgSend } = require('../lib/text');
 const { dbFor } = require('../lib/pipeline');
 const A = require('../lib/agents');
+const { maskStaff, rosterFrom } = require('../lib/roles');
 
 function cabinetButton(req) {
   const url = publicUrl(req) + '/tg/';
@@ -60,17 +61,19 @@ module.exports = async function handler(req, res) {
   const db = dbFor({ secret, owner: o.owner_id });
   try {
     if (cmd === '/help' || cmd === '/start' || cmd === '/app') { await tgSend(m.chat.id, HELP, cabinetButton(req)); return send(res, 200, { ok: true }); }
+    const ctx = CMD[cmd] || text ? await db.op('ctx', { days: 21 }).catch(() => ({})) : {};
+    const roster = rosterFrom(ctx);
     if (CMD[cmd]) {
       const i = await db.op('insight_get', { agent: CMD[cmd] }).catch(() => null);
-      await tgSend(m.chat.id, insightText(i) + `\n\n<a href="${publicUrl(req)}/app/#/agents">Открыть в кабинете</a>`);
+      await tgSend(m.chat.id, maskStaff(insightText(i) + `\n\n<a href="${publicUrl(req)}/app/#/agents">Открыть в кабинете</a>`, roster));
       return send(res, 200, { ok: true });
     }
     const q = text.replace(/@\w+/g, '').trim().slice(0, 1500);
-    const ctx = await db.op('ctx', { days: 14 });
     await db.op('chat_add', { role: 'user', text: q, via: 'tg' });
     const ans = await A.answer(q, ctx);
-    await db.op('chat_add', { role: 'assistant', text: ans.text, via: 'tg' });
-    await tgSend(m.chat.id, esc(ans.text));
+    const safe = maskStaff(ans.text, roster);
+    await db.op('chat_add', { role: 'assistant', text: safe, via: 'tg' });
+    await tgSend(m.chat.id, esc(safe));
   } catch (e) {
     await tgSend(m.chat.id, 'Не получилось ответить: ' + esc(String(e.message).slice(0, 200)));
   }
