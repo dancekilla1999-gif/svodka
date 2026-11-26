@@ -18,11 +18,36 @@
     }
   };
 
+  // Таймаут срабатывает, даже если в браузере нет AbortController: иначе экран «Загружаю…» не сменяется.
+  function withTimeout(promise, ms, message) {
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      var timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        var err = new Error(message);
+        err.network = true;
+        reject(err);
+      }, ms);
+      promise.then(function (v) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(v);
+      }, function (e) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        reject(e);
+      });
+    });
+  }
+
   // ------------------------------------------------------------ API
   SV.api = function (fn, args) {
     var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 25000);
-    return fetch(CFG.url + "/rest/v1/rpc/" + fn, {
+    return withTimeout(fetch(CFG.url + "/rest/v1/rpc/" + fn, {
       method: "POST",
       headers: { "apikey": CFG.key, "Content-Type": "application/json" },
       body: JSON.stringify(args || {}),
@@ -45,19 +70,19 @@
       var err = new Error(e && e.name === "AbortError" ? "Сервер не отвечает. Проверьте интернет и попробуйте ещё раз" : "Нет связи с сервером. Проверьте интернет");
       err.network = true;
       throw err;
-    });
+    }), 30000, "Сервер не отвечает. Проверьте интернет и попробуйте ещё раз");
   };
 
   // серверные функции (iiko, Telegram)
   SV.fn = function (action, args) {
     var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 90000);
-    return fetch("/api/iiko", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ action: action }, args || {})), signal: ctrl ? ctrl.signal : undefined })
+    return withTimeout(fetch("/api/iiko", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ action: action }, args || {})), signal: ctrl ? ctrl.signal : undefined })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) {
         clearTimeout(timer);
         if (!r.ok) { var e = new Error(d.error || (r.status === 504 ? "iiko слишком долго отдаёт данные — попробуйте ещё раз через минуту" : "Ошибка сервера (" + r.status + ")")); e.hint = d.hint; e.status = r.status; throw e; }
         return d;
-      }); }, function (e) { clearTimeout(timer); var err = new Error(e && e.name === "AbortError" ? "Сервер iiko отвечает слишком долго" : "Нет связи с сервером"); err.network = true; throw err; });
+      }); }, function (e) { clearTimeout(timer); var err = new Error(e && e.name === "AbortError" ? "Сервер iiko отвечает слишком долго" : "Нет связи с сервером"); err.network = true; throw err; }), 95000, "Сервер iiko отвечает слишком долго");
   };
 
   // ------------------------------------------------------------ DOM
@@ -90,9 +115,22 @@
 
   SV.mount = function (node) {
     var root = document.getElementById("app");
+    root.setAttribute("data-booted", "1");
     root.textContent = "";
     add(root, node);
     window.scrollTo(0, 0);
+  };
+
+  // Ошибка вместо вечного «Загружаю…». retry — функция или отсутствие (тогда страница обновляется).
+  SV.problem = function (title, message, retry) {
+    return h("main", { class: "wrap page" }, h("div", { class: "card form", role: "alert" },
+      h("h1", { text: title || "Не получилось открыть" }),
+      h("p", { text: message || "Проверьте интернет и попробуйте ещё раз." }),
+      h("div", { class: "row" },
+        h("button", { class: "btn primary", type: "button", text: "Повторить", onclick: function () {
+          if (typeof retry === "function") retry(); else location.reload();
+        } }),
+        h("a", { class: "btn", href: "#/home", text: "К отчётам" }))));
   };
 
   SV.loading = function (text) {
@@ -177,6 +215,8 @@
     }
   })();
   SV.dispatch = function () {
+    var root = document.getElementById("app");
+    if (root) root.setAttribute("data-booted", "1");
     var path = SV.path();
     for (var i = 0; i < routes.length; i++) {
       var m = path.match(routes[i].re);
@@ -190,6 +230,13 @@
     SV.go("/");
   };
   window.addEventListener("hashchange", function () { SV.dispatch(); });
+  window.addEventListener("unhandledrejection", function (e) {
+    var app = document.getElementById("app");
+    if (!app || app.getAttribute("data-booted") !== "1" || !app.querySelector(".loading")) return;
+    if (window.console) console.error(e.reason);
+    var msg = (e.reason && e.reason.message) || "Не удалось загрузить данные. Проверьте интернет и попробуйте ещё раз.";
+    SV.mount(SV.problem("Не получилось загрузить", msg, function () { SV.dispatch(); }));
+  });
 
   SV.fatal = function (e) {
     if (window.console) console.error(e);

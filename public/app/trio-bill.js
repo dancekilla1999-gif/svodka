@@ -5,6 +5,7 @@
 (function () {
   "use strict";
   var me = document.currentScript;
+  if (!me) return;
   var C = {
     product: me.getAttribute("data-product"),
     store: me.getAttribute("data-store"),
