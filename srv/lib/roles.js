@@ -65,15 +65,40 @@ function escapeReg(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Окончания падежей. Длинные раньше коротких, чтобы «ой» не схлопывалось в «о».
-const CASE_ENDING = '(?:ою|ею|ами|ями|ой|ей|ом|ем|ём|ах|ях|ов|ев|ёв|а|я|у|ю|е|ы|и|о)?';
+// Имена, которые в нижнем регистре являются обычными словами. Их, как и короткие, узнаём только с заглавной.
+const DICT_NAMES = new Set(['вера', 'роза', 'любовь', 'надежда', 'слава', 'лилия']);
+
+// Окончания падежей. Длинные раньше коротких, чтобы «ой» не схлопывалось в «о», а «ым» — в «ы».
+const CASE_ENDINGS = ['ого', 'ому', 'ою', 'ею', 'ами', 'ями', 'ой', 'ей', 'ом', 'ем', 'ём', 'ах', 'ях', 'ов', 'ев', 'ёв', 'ым', 'им', 'ых', 'а', 'я', 'у', 'ю', 'е', 'ы', 'и', 'о'];
+
+function chars(value) {
+  return [...String(value || '')];
+}
+
+function caseLetter(ch, anyCase) {
+  const upper = ch.toLocaleUpperCase('ru-RU');
+  const lower = ch.toLocaleLowerCase('ru-RU');
+  if (!anyCase) return escapeReg(upper);
+  if (upper === lower) return escapeReg(ch);
+  return '[' + escapeReg(upper) + escapeReg(lower) + ']';
+}
+
+function casePattern(value, capitalOnly) {
+  return chars(value).map((ch, i) => caseLetter(ch, !(capitalOnly && i === 0))).join('');
+}
+
+function capitalOnly(part) {
+  const lower = String(part || '').toLocaleLowerCase('ru-RU');
+  return lower.length <= 3 || DICT_NAMES.has(lower);
+}
 
 function partInner(part) {
   const lower = String(part || '').toLocaleLowerCase('ru-RU');
   let stem = lower;
   if (lower.length >= 4 && /[ая]$/u.test(lower)) stem = lower.slice(0, -1);
   else if (lower.length >= 4 && /[ьй]$/u.test(lower)) stem = lower.slice(0, -1);
-  return escapeReg(stem) + CASE_ENDING;
+  const ending = '(?:' + CASE_ENDINGS.map((item) => casePattern(item, false)).join('|') + ')?';
+  return casePattern(stem, capitalOnly(part)) + ending;
 }
 
 function phraseInners(name) {
@@ -86,8 +111,15 @@ function phraseInners(name) {
 }
 
 function replaceMasked(text, inner, label) {
-  const re = new RegExp('(?<![А-Яа-яЁёA-Za-z])(?:' + inner + ')(?![А-Яа-яЁёA-Za-z])', 'giu');
+  const re = new RegExp('(?<![А-Яа-яЁёA-Za-z])(?:' + inner + ')(?![А-Яа-яЁёA-Za-z])', 'gu');
   return text.replace(re, label);
+}
+
+function collapseRole(text) {
+  return text.replace(/(кассир|официант)\s+(кассир|официант)\s+(\d+)/giu, (all, left, right, n) => {
+    if (left.toLocaleLowerCase('ru-RU') !== right.toLocaleLowerCase('ru-RU')) return all;
+    return left + ' ' + n;
+  });
 }
 
 function maskStaff(text, roster) {
@@ -99,7 +131,7 @@ function maskStaff(text, roster) {
   people.forEach((item) => {
     item.forms.tokens.forEach((inner) => { out = replaceMasked(out, inner, item.label); });
   });
-  return out;
+  return collapseRole(out);
 }
 
 function maskValue(value, roster) {

@@ -113,6 +113,34 @@ test('маскировка до генерации: падеж, порядок, 
   assert.match(src, /maskValue\(facts, people\)/);
 });
 
+test('обычные слова остаются, Петровым маскируется, должность не двоится', () => {
+  const roster = [
+    { name: 'Ли', role: 'официант' },
+    { name: 'Вера', role: 'официант' },
+    { name: 'Роза', role: 'кассир' },
+    { name: 'Анна Петрова', role: 'официант' },
+    { name: 'Кира', role: 'кассир' }
+  ];
+  assert.equal(maskStaff('Проверьте, есть ли скидка', roster), 'Проверьте, есть ли скидка');
+  assert.equal(maskStaff('нет веры в цифру и роза в вазе', roster), 'нет веры в цифру и роза в вазе');
+  const named = maskStaff('Смена: Ли, Вера и Роза', roster);
+  assert.doesNotMatch(named, /Ли|Вера|Роза/);
+  assert.match(named, /официант /);
+  assert.match(named, /кассир /);
+  const instrumental = maskStaff('Поговорите с Петровым', roster);
+  assert.doesNotMatch(instrumental, /Петров/);
+  assert.match(instrumental, /официант /);
+  for (const form of ['Петровым', 'Петровим', 'Петрового', 'Петровому', 'Петровых']) {
+    assert.doesNotMatch(maskStaff('ждали ' + form, roster), /Петров/, form);
+  }
+  const doubledCashier = maskStaff('кассир Кира закрыла кассу', roster);
+  assert.equal(doubledCashier.includes('кассир кассир'), false);
+  assert.match(doubledCashier, /кассир \d/);
+  const doubledWaiter = maskStaff('официант Вера на смене', roster);
+  assert.equal(doubledWaiter.includes('официант официант'), false);
+  assert.match(doubledWaiter, /официант \d/);
+});
+
 test('ссылка утреннего отчёта открывает Mini App', () => {
   const prev = process.env.TG_BOT_USERNAME;
   process.env.TG_BOT_USERNAME = 'trio_svodka_bot';
