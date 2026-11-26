@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # Сборка: release.txt -> сайт в public/, srv.txt -> серверный код в srv/; всё сверяется по sha256
 set -euo pipefail
+# Плейсхолдеры оператора: в обычной сборке и в CI это предупреждение, регистрация на сайте закрыта.
+# Прод-сборка с REQUIRE_OPERATOR=1 останавливается, пока в operator.js есть «[УКАЖИТЕ».
+if grep -q '\[УКАЖИТЕ' public/legal/operator.js; then
+  if [ "${REQUIRE_OPERATOR:-}" = "1" ]; then
+    echo "ERROR: public/legal/operator.js содержит плейсхолдеры [УКАЖИТЕ…]. Заполните реквизиты перед прод-сборкой." >&2
+    exit 1
+  fi
+  echo "WARNING: public/legal/operator.js содержит плейсхолдеры [УКАЖИТЕ…]. Регистрация закрыта, пока их не заменят. Прод-сборка с REQUIRE_OPERATOR=1 остановится." >&2
+fi
 # Если сайт уже лежит в репозитории (public/ и srv/) — собираем из него без скачивания.
 # Иначе — как на проде: скачиваем релиз из Supabase Storage по release.txt/srv.txt.
 if [ -d public ] && { [ ! -f srv.txt ] || [ -d srv ]; }; then

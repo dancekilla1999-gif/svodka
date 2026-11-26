@@ -6,12 +6,39 @@
   border: 1.5px solid var(--line); border-radius: 6px; text-decoration: none; color: var(--ink); background: var(--surface);
 }
 .legal-nav a[aria-current="page"] { border-color: var(--ink); font-weight: 700; }
+@media (max-width: 420px) {
+  .legal-nav { flex-wrap: nowrap; gap: 6px; }
+  .legal-nav a { flex: 1 1 0; justify-content: center; padding: 8px 4px; font-size: .82rem; min-width: 0; }
+}
 .legal-doc h2 { margin: 1.35rem 0 .45rem; }
 .legal-doc p, .legal-doc li { margin: 0 0 .7rem; }
 .legal-doc ul, .legal-doc ol { margin: 0 0 .8rem; padding-left: 1.2rem; }
+.wrap, #doc { min-width: 0; }
 .legal-doc { min-width: 0; max-width: 100%; }
-.table-scroll { display: block; width: 100%; max-width: 100%; overflow-x: auto; }
-.legal-doc table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.legal-doc a { text-underline-offset: 3px; }
+.legal-doc p, .legal-doc li { overflow-wrap: break-word; }
+.table-scroll { display: block; width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.legal-doc table { width: 100%; min-width: 40rem; border-collapse: collapse; font-size: .92rem; }
 .legal-doc th, .legal-doc td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+.legal-doc td:nth-child(1), .legal-doc th:nth-child(1),
+.legal-doc td:nth-child(2), .legal-doc th:nth-child(2) { white-space: nowrap; }
+@media (max-width: 720px) {
+  .table-scroll { overflow-x: visible; }
+  .legal-doc table { min-width: 0; display: block; }
+  .legal-doc thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .legal-doc tbody, .legal-doc tr, .legal-doc td { display: block; width: auto; }
+  .legal-doc tr { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; }
+  .legal-doc td, .legal-doc th { white-space: normal; border: 0; padding: 6px 0; }
+  .legal-doc td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    font-size: .75rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+}
 .ph { background: var(--warn-bg); color: var(--ink); padding: 0 .25rem; border-radius: 4px; font-weight: 700; }
 .draft-note { border: 1px solid var(--warn-line); background: var(--warn-bg); border-radius: 10px; padding: 12px 14px; }
