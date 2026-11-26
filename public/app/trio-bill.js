@@ -211,7 +211,18 @@
     var a = document.getElementById("tb_agree");
     if (a && !a.checked) {
       e.preventDefault(); e.stopImmediatePropagation();
-      var lab = a.closest("label"); if (lab) { lab.classList.add("tb-need"); setTimeout(function () { lab.classList.remove("tb-need"); }, 1600); }
+      var lab = a.closest("label"); if (lab) lab.classList.add("tb-need");
+      var form = a.closest("form");
+      var err = form && form.querySelector(".form-err");
+      if (err) err.textContent = "Подтвердите согласие с офертой.";
+      if (!a._svNoted) {
+        a._svNoted = true;
+        a.addEventListener("change", function () {
+          if (!a.checked) return;
+          if (lab) lab.classList.remove("tb-need");
+          if (err && err.textContent === "Подтвердите согласие с офертой.") err.textContent = "";
+        });
+      }
       a.focus();
     }
   }, true);

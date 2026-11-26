@@ -76,7 +76,7 @@
     }
     ruField(email, "Введите почту", "Укажите почту в виде имя@домен");
     ruField(pass, "Введите пароль", "Проверьте пароль");
-    var name = h("input", { autocomplete: "name", placeholder: "Как к вам обращаться" });
+    var name = h("input", { id: "name", name: "name", autocomplete: "name", placeholder: "Как к вам обращаться" });
     var err = h("p", { class: "form-err", role: "alert" });
     var btn = h("button", { class: "btn primary wide", type: "submit", text: mode === "login" ? "Войти" : "Создать аккаунт" });
     SV.mount(h("main", { class: "page narrow" }, h("a", { class: "brand big", href: "#/", text: "Сводка" }),

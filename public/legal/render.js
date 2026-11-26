@@ -17,6 +17,9 @@
   function ph(value) {
     return '<mark class="ph">' + esc(value) + "</mark>";
   }
+  function edition() {
+    return esc(String(C.updated).replace(/\.+$/, ""));
+  }
   function mail() {
     var v = O.email;
     if (String(v).indexOf("[УКАЖИТЕ") === 0) return ph(v);
@@ -46,7 +49,7 @@
   function privacy() {
     return [
       "<h1>Политика конфиденциальности</h1>",
-      '<p class="small muted">Редакция от ' + esc(C.updated) + ". Сервис «" + esc(C.service) + "», " + esc(C.site) + ".</p>",
+      '<p class="small muted">Редакция от ' + edition() + ". Сервис «" + esc(C.service) + "», " + esc(C.site) + ".</p>",
       draft(),
       requisites(),
       "<h2>1. О чём этот документ</h2>",
@@ -111,7 +114,7 @@
   function consent() {
     return [
       "<h1>Согласие на обработку персональных данных</h1>",
-      '<p class="small muted">Отдельный документ, не часть оферты и не часть политики. Редакция от ' + esc(C.updated) + ".</p>",
+      '<p class="small muted">Отдельный документ, не часть оферты и не часть политики. Редакция от ' + edition() + ".</p>",
       draft(),
       "<p>С 1 сентября 2025 года согласие оформляется отдельно от иных документов. Ставя галочку при регистрации в «Сводке», человек даёт это согласие осознанно и отдельно от принятия оферты.</p>",
       requisites(),
@@ -149,7 +152,7 @@
   function cookies() {
     return [
       "<h1>Политика cookies и локального хранилища</h1>",
-      '<p class="small muted">Редакция от ' + esc(C.updated) + ".</p>",
+      '<p class="small muted">Редакция от ' + edition() + ".</p>",
       draft(),
       "<p>«Сводка» не ставит рекламных и аналитических cookies. Для входа и настроек интерфейса браузер хранит несколько записей в localStorage и sessionStorage. Это не чужой трекер: записи читает только этот сайт.</p>",
       "<p>Плашка внизу экрана ведёт на эту страницу. Пока вы не нажмёте «Понятно», плашка остаётся. Нажатие запоминается в браузере и не отправляется на сервер.</p>",
@@ -172,7 +175,7 @@
   function offer() {
     return [
       "<h1>Публичная оферта на подписку «Сводка»</h1>",
-      '<p class="small muted">Редакция от ' + esc(C.updated) + ". Оферта по ст. 437 Гражданского кодекса РФ.</p>",
+      '<p class="small muted">Редакция от ' + edition() + ". Оферта по ст. 437 Гражданского кодекса РФ.</p>",
       draft(),
       requisites(),
       "<h2>1. Услуга</h2>",
@@ -233,5 +236,6 @@
     return;
   }
   document.title = titles[slug];
-  root.innerHTML = nav(slug) + '<article class="card legal-doc">' + pages[slug]() + "</article>";
+  var body = pages[slug]().replace(/<table>/g, '<div class="table-scroll"><table>').replace(/<\/table>/g, "</table></div>");
+  root.innerHTML = nav(slug) + '<article class="card legal-doc">' + body + "</article>";
 })();

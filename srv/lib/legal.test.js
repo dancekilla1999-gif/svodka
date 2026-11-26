@@ -33,6 +33,9 @@ function testConfig() {
   assert.match(render, /Supabase/);
   assert.match(render, /Vercel/);
   assert.match(render, /sv_owner/);
+  assert.match(render, /function edition\(/);
+  assert.doesNotMatch(render, /C\.updated\) \+ "/);
+  assert.match(render, /table-scroll/);
 }
 
 function testLinks() {
