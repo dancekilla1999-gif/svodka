@@ -51,6 +51,14 @@
     {
       "source": "/app/r/:id",
       "destination": "/app/index.html"
+    },
+    {
+      "source": "/legal",
+      "destination": "/legal/index.html"
+    },
+    {
+      "source": "/legal/:doc",
+      "destination": "/legal/index.html"
     }
   ]
 }
