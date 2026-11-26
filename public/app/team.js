@@ -208,8 +208,14 @@
   // ------------------------------------------------------------ расходы и цели
   SV.route("/expenses", function () {
     if (!A.need()) return;
-    SV.mount([A.topbar(), SV.loading()]);
-    A.call("sv_agent", { p_op: "home", p_args: {} }).then(function (d) { SV.mount([A.topbar(), expenses(d)]); }, A.fail);
+    function load() {
+      SV.mount([A.topbar(), SV.loading()]);
+      A.call("sv_agent", { p_op: "home", p_args: {} }).then(function (d) {
+        try { SV.mount([A.topbar(), expenses(d)]); }
+        catch (e) { SV.mount([A.topbar(), SV.problem("Не удалось открыть расходы", e.message, load)]); }
+      }, function (e) { SV.mount([A.topbar(), SV.problem("Не удалось открыть расходы", e.message, load)]); });
+    }
+    load();
   });
   function expenses(d) {
     var list = d.expenses || [], prefs = Object.assign({ food_cost_target: 0.32, labor_target: 0.28, price_alert: 0.05, weekly_tg: true, daily_tips: true, purchases: true }, d.prefs || {});

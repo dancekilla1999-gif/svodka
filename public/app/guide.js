@@ -218,7 +218,7 @@
   // ------------------------------------------------------------------ подсказки на экранах
   function tip() {
     var old = document.querySelector(".tg-tip"); if (old) old.remove();
-    if (!isOwner()) return;
+    if (!isOwner() || guideBlocked()) return;
     var p = path();
     for (var i = 0; i < C.tips.length; i++) {
       if (!C.tips[i][0].test(p)) continue;
@@ -231,12 +231,29 @@
       return;
     }
   }
-  function onRoute() { btn.hidden = !isOwner(); setTimeout(tip, 700); setTimeout(tip, 2000); if (!btn.hidden) refresh(); }
+  function onRoute() { btn.hidden = !isOwner(); setTimeout(tip, 700); setTimeout(tip, 2000); if (!btn.hidden) refresh(); considerGuide(); }
+  // Пока на экране «Загружаю…» или ошибка, панель закрывает шапку. Открываем её один раз, когда страница уже собрана.
+  function guideBlocked() {
+    var app = document.getElementById("app");
+    if (!app) return true;
+    return !!(app.querySelector(".loading") || app.querySelector("[role='alert']"));
+  }
+  var guideWait = null;
+  function considerGuide() {
+    if (!isOwner() || sget("trio_guide_seen_" + P) === "1") return;
+    clearTimeout(guideWait);
+    if (guideBlocked()) return;
+    guideWait = setTimeout(function () {
+      if (!isOwner() || sget("trio_guide_seen_" + P) === "1" || guideBlocked()) return;
+      sset("trio_guide_seen_" + P, "1");
+      open();
+    }, 700);
+  }
   function boot() {
     document.body.appendChild(btn); document.body.appendChild(panel);
     onRoute();
-    // при первом входе владельца — открыть помощь один раз
-    if (isOwner() && sget("trio_guide_seen_" + P) !== "1") { sset("trio_guide_seen_" + P, "1"); setTimeout(open, 1200); }
+    var app = document.getElementById("app");
+    if (app && window.MutationObserver) new MutationObserver(function () { considerGuide(); }).observe(app, { childList: true });
   }
   window.addEventListener("hashchange", onRoute);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
