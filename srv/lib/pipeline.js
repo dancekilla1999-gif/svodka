@@ -59,9 +59,10 @@ async function runDay(db, conn, day, opts = {}) {
     pr = A.purchases(day, ing.changes, prefs, purch.sum);
     await save(db, pr);
   }
+  const roster = rosterFrom(report);
   let tip = null;
   if (prefs.daily_tips && !opts.noAi && !opts.partial) {
-    tip = await A.dailyTip(sh, pr);
+    tip = await A.dailyTip(sh, pr, roster);
     if (tip) await db.op('insight_save', { agent: 'shift', pkey: day, level: sh.level, title: sh.title, data: Object.assign({ items: sh.items, tip }, sh.data), text: sh.text });
   }
   // по воскресеньям (или по запросу) — неделя целиком
@@ -71,7 +72,7 @@ async function runDay(db, conn, day, opts = {}) {
   if (opts.chatId && opts.send !== false) {
     // Ссылка без # — Telegram и ins-браузеры часто отрезают якорь, и человек попадал на оболочку кабинета, а не в отчёт.
     const link = reportOpenLink(opts.base, saved.id);
-    const names = rosterFrom(report);
+    const names = roster;
     sent = await tgSend(opts.chatId, maskStaff(reportText(report, link, A.tgDailyExtra(pr, tip)), names)).catch(() => false);
     if (week && prefs.weekly_tg) {
       const weekly = A.tgWeekly(week.director, week.finance, opts.base ? `${opts.base}/app/#/agents` : null);

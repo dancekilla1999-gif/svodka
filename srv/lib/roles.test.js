@@ -60,6 +60,59 @@ test('кассир маскируется кассиром, официант —
   assert.match(read('public/legal/render.js'), /недельный итог/);
 });
 
+test('маскировка до генерации: падеж, порядок, регистр и короткое имя', async () => {
+  const roster = rosterFrom({
+    waiters: [{ name: 'Анна Петрова' }],
+    cashiers: [{ name: 'Ян' }]
+  });
+  const samples = [
+    'Похвалить Анне Петровой за смену',
+    'Сегодня вышла Анна',
+    'На смене Петрова Анна',
+    'Смена АННА ПЕТРОВА',
+    'Касса: Ян закрыла день'
+  ];
+  samples.forEach((sample) => {
+    const masked = maskStaff(sample, roster);
+    assert.doesNotMatch(masked, /Анн|Петров|Ян/i, sample + ' → ' + masked);
+    assert.match(masked, /официант 1|кассир 1/, sample);
+  });
+  assert.equal(maskStaff('Январь без сотрудника', roster), 'Январь без сотрудника');
+  assert.doesNotMatch(maskStaff('Аннулирование чека', roster), /официант|кассир/);
+
+  const ai = require('./ai');
+  const seen = [];
+  const orig = ai.write;
+  ai.write = async (_system, data) => { seen.push(JSON.stringify(data)); return 'Анне Петровой стоит сменить Ян'; };
+  try {
+    const staff = {
+      agent: 'staff',
+      items: [{ level: 'ok', text: 'Похвалить: Анна Петрова — средний чек выше команды' }],
+      data: { staff: [{ name: 'Анна Петрова' }, { name: 'Ян', role: 'кассир' }] }
+    };
+    const fin = { agent: 'finance', title: 'Неделя', data: { pnl: { revenue: 1, expenses: {} }, prev: {}, month: {} }, items: [] };
+    const plan = await A.director({ key: 'w', label: '1–7' }, [fin, staff], {});
+    const tip = await A.dailyTip(
+      { title: 'Смена', data: { metrics: {} }, items: [{ text: 'Удаление: Анне Петровой, касса Ян' }] },
+      null,
+      roster
+    );
+    assert.doesNotMatch(plan.text, /Анн|Петров|Ян/i);
+    assert.match(plan.text, /официант 1/);
+    assert.match(plan.text, /кассир 1/);
+    assert.doesNotMatch(tip, /Анн|Петров|Ян/i);
+  } finally {
+    ai.write = orig;
+  }
+  const blob = seen.join('\n');
+  assert.doesNotMatch(blob, /Анн|Петров|(?<![А-Яа-яЁё])Ян(?![А-Яа-яЁё])/i);
+  assert.match(blob, /официант 1/);
+  assert.match(blob, /кассир 1/);
+  const src = fs.readFileSync(path.join(__dirname, 'agents.js'), 'utf8');
+  assert.match(src, /maskValue\(facts, roster\)/);
+  assert.match(src, /maskValue\(facts, people\)/);
+});
+
 test('ссылка утреннего отчёта открывает Mini App', () => {
   const prev = process.env.TG_BOT_USERNAME;
   process.env.TG_BOT_USERNAME = 'trio_svodka_bot';

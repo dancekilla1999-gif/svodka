@@ -1,8 +1,9 @@
 {
   "regions": ["fra1"],
   "functions": {
-    "api/*.js": {
-      "maxDuration": 60
+    "api/**/*.js": {
+      "maxDuration": 60,
+      "includeFiles": "public/legal/operator.js"
     }
   },
   "crons": [
@@ -62,8 +63,10 @@
       ]
     }
   ],
+  "redirects": [
+    { "source": "/tg", "destination": "/tg/", "permanent": false }
+  ],
   "rewrites": [
-    { "source": "/tg", "destination": "/tg/index.html" },
     { "source": "/app/r/:id", "destination": "/app/index.html" },
     { "source": "/legal", "destination": "/legal/index.html" },
     { "source": "/legal/:doc", "destination": "/legal/index.html" },

@@ -81,7 +81,7 @@
     var gaps = [];
     var selfEmployed = String(C.operator.personStatus || "") === "самозанятый";
     var fields = selfEmployed
-      ? [["ФИО", C.operator.personName], ["ИНН", C.operator.inn]]
+      ? [["ФИО", C.operator.personName], ["ИНН", C.operator.inn], ["почта", C.operator.email]]
       : [["название", C.operator.name], ["ИНН", C.operator.inn], ["ОГРН", C.operator.ogrn], ["адрес", C.operator.address], ["почта", C.operator.email]];
     fields.forEach(function (f) {
       if (f[1] == null || !String(f[1]).trim() || String(f[1]).indexOf("[УКАЖИТЕ") === 0) gaps.push(f[0]);

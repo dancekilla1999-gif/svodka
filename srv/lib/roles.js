@@ -3,7 +3,7 @@
 
 function cleanName(value) {
   const t = String(value || '').trim();
-  if (t.length < 3) return '';
+  if (t.length < 2) return '';
   if (t === '—' || /^без\s/i.test(t)) return '';
   return t;
 }
@@ -61,10 +61,43 @@ function labelsFor(roster) {
   return numbered;
 }
 
+function escapeReg(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Окончания падежей. Длинные раньше коротких, чтобы «ой» не схлопывалось в «о».
+const CASE_ENDING = '(?:ою|ею|ами|ями|ой|ей|ом|ем|ём|ах|ях|ов|ев|ёв|а|я|у|ю|е|ы|и|о)?';
+
+function partInner(part) {
+  const lower = String(part || '').toLocaleLowerCase('ru-RU');
+  let stem = lower;
+  if (lower.length >= 4 && /[ая]$/u.test(lower)) stem = lower.slice(0, -1);
+  else if (lower.length >= 4 && /[ьй]$/u.test(lower)) stem = lower.slice(0, -1);
+  return escapeReg(stem) + CASE_ENDING;
+}
+
+function phraseInners(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return { phrases: [], tokens: [] };
+  const forward = parts.map(partInner).join('\\s+');
+  const phrases = [forward];
+  if (parts.length > 1) phrases.push(parts.slice().reverse().map(partInner).join('\\s+'));
+  return { phrases, tokens: parts.map(partInner) };
+}
+
+function replaceMasked(text, inner, label) {
+  const re = new RegExp('(?<![А-Яа-яЁёA-Za-z])(?:' + inner + ')(?![А-Яа-яЁёA-Za-z])', 'giu');
+  return text.replace(re, label);
+}
+
 function maskStaff(text, roster) {
   let out = String(text || '');
-  labelsFor(roster).forEach((item) => {
-    out = out.split(item.name).join(item.label);
+  const people = labelsFor(roster).map((item) => Object.assign({ forms: phraseInners(item.name) }, item));
+  people.forEach((item) => {
+    item.forms.phrases.forEach((inner) => { out = replaceMasked(out, inner, item.label); });
+  });
+  people.forEach((item) => {
+    item.forms.tokens.forEach((inner) => { out = replaceMasked(out, inner, item.label); });
   });
   return out;
 }

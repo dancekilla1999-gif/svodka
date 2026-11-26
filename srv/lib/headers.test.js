@@ -45,6 +45,15 @@ test('заголовки /app и /tg', () => {
   assert.equal(api['X-Frame-Options'], 'DENY');
 });
 
+test('/tg без слэша редиректит на /tg/', () => {
+  const rule = (cfg.redirects || []).find((item) => item.source === '/tg');
+  assert.ok(rule);
+  assert.equal(rule.destination, '/tg/');
+  assert.equal((cfg.rewrites || []).some((item) => item.source === '/tg'), false);
+  const nginx = fs.readFileSync(path.join(__dirname, '../../deploy/nginx.conf'), 'utf8');
+  assert.match(nginx, /location = \/tg \{\s*return 308 \/tg\/;/);
+});
+
 test('nginx этапа 2 не отдаёт X-Frame-Options на /tg/', () => {
   const nginx = fs.readFileSync(path.join(__dirname, '../../deploy/nginx.conf'), 'utf8');
   assert.match(nginx, /location \/tg\//);

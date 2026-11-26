@@ -1,15 +1,10 @@
 // Реквизиты оператора читаются с сервера из того же файла, что и кабинет.
-// Самозанятому нужны ФИО и ИНН. ОГРН и наименование юрлица у него не требуются.
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
+// require нужен, чтобы файл попал в бандл функции Vercel, а не только читался с диска.
+// Самозанятому нужны ФИО, ИНН и почта. ОГРН и наименование юрлица у него не требуются.
+const operatorConfig = require('../../public/legal/operator.js');
 
 function loadOperator() {
-  const file = path.join(__dirname, '../../public/legal/operator.js');
-  const src = fs.readFileSync(file, 'utf8');
-  const window = {};
-  vm.runInNewContext(src, { window }, { filename: file });
-  return window.SV_LEGAL || {};
+  return operatorConfig || {};
 }
 
 function missing(value) {
@@ -21,7 +16,7 @@ function operatorGaps(config) {
   const O = C.operator || {};
   const selfEmployed = String(O.personStatus || '') === 'самозанятый';
   const fields = selfEmployed
-    ? [['ФИО', O.personName], ['ИНН', O.inn]]
+    ? [['ФИО', O.personName], ['ИНН', O.inn], ['почта', O.email]]
     : [['название', O.name], ['ИНН', O.inn], ['ОГРН', O.ogrn], ['адрес', O.address], ['почта', O.email]];
   return fields.filter((field) => missing(field[1])).map((field) => field[0]);
 }
