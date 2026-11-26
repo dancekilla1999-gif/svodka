@@ -67,10 +67,10 @@
       });
     }, function (e) {
       clearTimeout(timer);
-      var err = new Error(e && e.name === "AbortError" ? "Сервер не отвечает. Проверьте интернет и попробуйте ещё раз" : "Нет связи с сервером. Проверьте интернет");
+      var err = new Error(e && e.name === "AbortError" ? "Сервер не отвечает. Проверьте интернет и попробуйте ещё раз." : "Нет связи с сервером. Проверьте интернет");
       err.network = true;
       throw err;
-    }), 30000, "Сервер не отвечает. Проверьте интернет и попробуйте ещё раз");
+    }), 30000, "Сервер не отвечает. Проверьте интернет и попробуйте ещё раз.");
   };
 
   // серверные функции (iiko, Telegram)
@@ -122,15 +122,16 @@
   };
 
   // Ошибка вместо вечного «Загружаю…». retry — функция или отсутствие (тогда страница обновляется).
-  SV.problem = function (title, message, retry) {
+  // label задаёт подпись кнопки, когда это не повтор запроса (например, «На главную»).
+  SV.problem = function (title, message, retry, label) {
     return h("main", { class: "wrap page" }, h("div", { class: "card form", role: "alert" },
       h("h1", { text: title || "Не получилось открыть" }),
       h("p", { text: message || "Проверьте интернет и попробуйте ещё раз." }),
       h("div", { class: "row" },
-        h("button", { class: "btn primary", type: "button", text: "Повторить", onclick: function () {
+        h("button", { class: "btn primary", type: "button", text: label || "Повторить", onclick: function () {
           if (typeof retry === "function") retry(); else location.reload();
         } }),
-        h("a", { class: "btn", href: "#/home", text: "К отчётам" }))));
+        label ? null : h("a", { class: "btn", href: "#/home", text: "К отчётам" }))));
   };
 
   SV.loading = function (text) {

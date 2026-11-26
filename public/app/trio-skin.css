@@ -105,10 +105,18 @@
   .tb-agree.tb-need { background: rgba(255,143,122,.14); color: var(--ink); }
   .tb-pay { display: grid; gap: 8px; }
   .tb-notice { position: fixed; z-index: 90; left: 50%; top: 18px; transform: translateX(-50%); max-width: calc(100vw - 32px); padding: 12px 18px; border-radius: 999px; background: #1d1711; border: 1px solid rgba(227,178,106,.45); color: var(--ink); font: 600 .9rem/1.3 var(--body); box-shadow: 0 20px 40px -20px rgba(0,0,0,.9); }
-  .tb-ck { position: fixed; z-index: 70; left: 16px; bottom: 76px; max-width: 420px; display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(227,178,106,.35); background: rgba(14,11,8,.95); font-size: .8rem; color: var(--muted); }
+  .tb-ck { position: fixed; z-index: 70; left: 16px; bottom: max(12px, env(safe-area-inset-bottom, 0px)); max-width: 420px; display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(227,178,106,.35); background: rgba(14,11,8,.95); font-size: .78rem; line-height: 1.35; color: var(--muted); }
   .tb-ck a { color: var(--accent-strong); }
-  .tb-ck button { flex: none; min-height: 36px; padding: 0 14px; border-radius: 999px; border: 0; background: var(--gold-grad); color: #160e05; font-weight: 700; cursor: pointer; }
-  @media (max-width: 520px) { .tb-ck { right: 16px; max-width: none; bottom: 76px; } }
+  .tb-ck button { flex: none; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 0; background: var(--gold-grad); color: #160e05; font-weight: 700; cursor: pointer; }
+  body:has(.tb-ck) { padding-bottom: 108px; }
+  html:has(.tb-ck) { scroll-padding-bottom: 140px; }
+  body:has(.tg-help:not([hidden])) .tb-ck { bottom: calc(max(12px, env(safe-area-inset-bottom, 0px)) + 64px); }
+  @media (max-width: 520px) {
+    .tb-ck { right: 10px; left: 10px; max-width: none; padding: 8px 10px; }
+    body:has(.tb-ck) { padding-bottom: 140px; }
+    html:has(.tb-ck) { scroll-padding-bottom: 160px; }
+    body:has(.tg-help:not([hidden])) { padding-bottom: 188px; }
+  }
 }
 @media print { .tb-ck, .tb-notice { display: none !important; } }
 

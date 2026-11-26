@@ -62,8 +62,20 @@
         h("a", { class: "btn wide", href: "#/login", text: "Войти" }))));
   });
   function authPage(mode) {
-    var email = h("input", { type: "email", autocomplete: "email", required: true });
-    var pass = h("input", { type: "password", autocomplete: mode === "login" ? "current-password" : "new-password", required: true, minlength: 8 });
+    var email = h("input", { type: "email", id: "email", name: "email", autocomplete: "username", required: true });
+    var pass = h("input", { type: "password", id: "password", name: "password", autocomplete: mode === "login" ? "current-password" : "new-password", required: true, minlength: 8 });
+    function ruField(input, emptyMsg, badMsg) {
+      input.addEventListener("invalid", function () {
+        var v = input.validity;
+        if (v.valueMissing) input.setCustomValidity(emptyMsg);
+        else if (v.typeMismatch) input.setCustomValidity(badMsg);
+        else if (v.tooShort) input.setCustomValidity("Пароль — не короче 8 символов");
+        else input.setCustomValidity("Проверьте это поле");
+      });
+      input.addEventListener("input", function () { input.setCustomValidity(""); });
+    }
+    ruField(email, "Введите почту", "Укажите почту в виде имя@домен");
+    ruField(pass, "Введите пароль", "Проверьте пароль");
     var name = h("input", { autocomplete: "name", placeholder: "Как к вам обращаться" });
     var err = h("p", { class: "form-err", role: "alert" });
     var btn = h("button", { class: "btn primary wide", type: "submit", text: mode === "login" ? "Войти" : "Создать аккаунт" });
@@ -79,7 +91,7 @@
         h("label", null, "Почта", email),
         h("label", null, "Пароль" + (mode === "register" ? " (от 8 символов)" : ""), pass), err, btn,
         (function () { try { return sessionStorage.getItem("sv_return"); } catch (e) { return null; } })() ? h("p", { class: "small center muted", text: "После входа откроется полный отчёт по смене." }) : null,
-        h("p", { class: "small center" }, mode === "login" ? h("a", { href: "#/register", text: "Нет аккаунта? Регистрация" }) : h("a", { href: "#/login", text: "Уже есть аккаунт? Войти" })))));
+        h("p", { class: "small center" }, mode === "login" ? h("a", { class: "auth-alt", href: "#/register", text: "Нет аккаунта? Регистрация" }) : h("a", { class: "auth-alt", href: "#/login", text: "Уже есть аккаунт? Войти" })))));
   }
   SV.route("/login", function () { authPage("login"); });
   SV.route("/register", function () { authPage("register"); });
@@ -164,7 +176,7 @@
         SV.mount([topbar(), SV.problem("Отчёт не открылся", e.message, load)]);
       });
     }
-    if (!id) { SV.mount([topbar(), SV.problem("Отчёт не открылся", "В ссылке нет номера отчёта.", function () { SV.go("/home"); })]); return; }
+    if (!id) { SV.mount([topbar(), SV.problem("Отчёт не открылся", "В ссылке нет номера отчёта.", function () { SV.go("/home"); }, "На главную")]); return; }
     load();
   });
   function table(head, rows, numCols) {
@@ -310,8 +322,14 @@
   // ------------------------------------------------------------ подключение iiko
   SV.route("/connect", function () {
     if (!need()) return;
-    SV.mount([topbar(), SV.loading()]);
-    call("sv_me").then(function (d) { SV.mount([topbar(), connect(d.conn)]); }, fail);
+    function load() {
+      SV.mount([topbar(), SV.loading()]);
+      call("sv_me").then(function (d) {
+        try { SV.mount([topbar(), connect(d.conn)]); }
+        catch (e) { SV.mount([topbar(), SV.problem("Не удалось открыть подключение", e.message, load)]); }
+      }, function (e) { SV.mount([topbar(), SV.problem("Не удалось открыть подключение", e.message, load)]); });
+    }
+    load();
   });
   function connect(c) {
     c = c && c.mode === "iiko" ? c : null;
@@ -373,15 +391,19 @@
   // ------------------------------------------------------------ настройки
   SV.route("/settings", function () {
     if (!need()) return;
-    SV.mount([topbar(), SV.loading()]);
-    Promise.all([
-      call("sv_me"),
-      call("sv_agent", { p_op: "home", p_args: {} }).catch(function () { return {}; })
-    ]).then(function (arr) {
-      var d = arr[0] || {};
-      d.prefs = (arr[1] && arr[1].prefs) || d.prefs || {};
-      SV.mount([topbar(), settings(d)]);
-    }, fail);
+    function load() {
+      SV.mount([topbar(), SV.loading()]);
+      Promise.all([
+        call("sv_me"),
+        call("sv_agent", { p_op: "home", p_args: {} }).catch(function () { return {}; })
+      ]).then(function (arr) {
+        var d = arr[0] || {};
+        d.prefs = (arr[1] && arr[1].prefs) || d.prefs || {};
+        try { SV.mount([topbar(), settings(d)]); }
+        catch (e) { SV.mount([topbar(), SV.problem("Не удалось открыть настройки", e.message, load)]); }
+      }, function (e) { SV.mount([topbar(), SV.problem("Не удалось открыть настройки", e.message, load)]); });
+    }
+    load();
   });
   function settings(d) {
     var c = d.conn;
