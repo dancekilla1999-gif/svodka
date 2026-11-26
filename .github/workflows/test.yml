@@ -1,0 +1,78 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: svodka
+          POSTGRES_PASSWORD: svodka
+          POSTGRES_DB: svodka
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U svodka -d svodka"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://svodka:svodka@localhost:5432/svodka
+      TG_SESSION_SECRET: test-session-secret
+      REFRESH_GRACE_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      IP_SALT: test-ip-salt
+      CRON_SECRET: test-cron-secret-value
+      TG_BOT_TOKEN: 123456789:AAH-synthetic-bot-token-00000000000
+      TG_BOT_USERNAME: trio_svodka_bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: node scripts/db-bootstrap.js
+      - run: npm test
+
+  acceptance:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: svodka
+          POSTGRES_PASSWORD: svodka
+          POSTGRES_DB: svodka
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U svodka -d svodka"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://svodka:svodka@localhost:5432/svodka
+      TG_SESSION_SECRET: test-session-secret
+      REFRESH_GRACE_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      IP_SALT: test-ip-salt
+      CRON_SECRET: test-cron-secret-value
+      TG_BOT_TOKEN: ${{ secrets.TG_TEST_BOT_TOKEN }}
+      TG_BOT_USERNAME: trio_svodka_bot
+      TG_TEST_BOT_TOKEN: ${{ secrets.TG_TEST_BOT_TOKEN }}
+      TG_REAL_INITDATA: ${{ secrets.TG_REAL_INITDATA }}
+      TG_REAL_INITDATA_TESTDC: ${{ secrets.TG_REAL_INITDATA_TESTDC }}
+      REQUIRE_REAL_INITDATA: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: node scripts/db-bootstrap.js
+      - run: set -o pipefail && npm test | tee test-out.txt
+      - name: нет пропущенных тестов
+        run: grep -q '# skipped 0' test-out.txt

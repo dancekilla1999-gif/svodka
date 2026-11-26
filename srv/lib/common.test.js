@@ -43,8 +43,10 @@ function testShellAssets() {
     if (/^(https?:|#|data:)/.test(ref)) return;
     assert.ok(ref.startsWith('/'), `${ref} должен быть абсолютным от корня, иначе /app/r/:id его не загрузит`);
   });
-  assert.match(html, /\/app\/core\.js\?v=23/);
-  assert.match(html, /Повторить/);
+  assert.match(html, /\/app\/core\.js\?v=26/);
+  assert.match(html, /\/app\/boot\.js/);
+  const boot = fs.readFileSync(require('node:path').join(__dirname, '../../public/app/boot.js'), 'utf8');
+  assert.match(boot, /Повторить/);
   assert.doesNotMatch(html, /src="core\.js/);
   assert.doesNotMatch(html, /href="app\.css/);
 }

@@ -8,6 +8,11 @@ const { tgSend } = require('../lib/text');
 const { dbFor } = require('../lib/pipeline');
 const A = require('../lib/agents');
 
+function cabinetButton(req) {
+  const url = publicUrl(req) + '/tg/';
+  return { reply_markup: { inline_keyboard: [[{ text: 'Открыть кабинет', web_app: { url } }]] } };
+}
+const WELCOME = 'Это бот «Сводки». Утренний отчёт по смене и кабинет — в кнопке ниже. Чат отчётов подключается отдельно: в кабинете на сайте нажмите «Подключить Telegram» и пришлите код сюда.';
 const HELP = 'Я — управляющий «Сводки». Каждое утро присылаю отчёт по смене, по понедельникам — итоги недели и план.\n\n' +
   'Спросите меня о чём угодно по заведению: «почему упала выручка?», «что подорожало?», «кого из официантов похвалить?», «сколько заработали за неделю?»\n\n' +
   'Команды: /week — план на неделю, /money — финансы, /buy — закупки, /team — персонал, /menu — меню.';
@@ -36,6 +41,12 @@ module.exports = async function handler(req, res) {
     await tgSend(m.chat.id, r.ok ? '✅ Готово! Каждое утро в 6:00 сюда будет приходить отчёт по вчерашней смене, а по понедельникам — итоги недели.\n\n' + HELP : 'Код не подошёл или устарел. Нажмите «Подключить Telegram» в кабинете ещё раз.');
     return send(res, 200, { ok: true });
   }
+  const bare = text.split(/[\s@]/)[0].toLowerCase();
+  if (bare === '/start' || bare === '/app' || bare === '/help') {
+    const reply = bare === '/help' ? HELP : (bare === '/app' ? 'Кабинет «Сводки».' : WELCOME);
+    await tgSend(m.chat.id, reply, cabinetButton(req));
+    return send(res, 200, { ok: true });
+  }
   if (!text) return send(res, 200, { ok: true });
   const o = await rpc('sv_agent_sys', { p_secret: secret, p_owner: null, p_op: 'tg_owner', p_args: { chat: m.chat.id } }).catch(() => ({}));
   if (!o.owner_id) {
@@ -48,7 +59,7 @@ module.exports = async function handler(req, res) {
   if (isGroup && !text.startsWith('/') && !(m.reply_to_message && m.reply_to_message.from && m.reply_to_message.from.is_bot) && !/@\w*bot\b/i.test(text)) return send(res, 200, { ok: true });
   const db = dbFor({ secret, owner: o.owner_id });
   try {
-    if (cmd === '/help' || cmd === '/start') { await tgSend(m.chat.id, HELP); return send(res, 200, { ok: true }); }
+    if (cmd === '/help' || cmd === '/start' || cmd === '/app') { await tgSend(m.chat.id, HELP, cabinetButton(req)); return send(res, 200, { ok: true }); }
     if (CMD[cmd]) {
       const i = await db.op('insight_get', { agent: CMD[cmd] }).catch(() => null);
       await tgSend(m.chat.id, insightText(i) + `\n\n<a href="${publicUrl(req)}/app/#/agents">Открыть в кабинете</a>`);

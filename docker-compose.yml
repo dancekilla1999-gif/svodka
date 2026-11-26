@@ -1,0 +1,15 @@
+# Локальная база для тестов входа через Telegram. Боевой Supabase сюда не подключается.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: svodka
+      POSTGRES_PASSWORD: svodka
+      POSTGRES_DB: svodka
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U svodka -d svodka"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

@@ -76,9 +76,11 @@ module.exports = async function handler(req, res) {
         if (!tok) return send(res, 200, { enabled: false });
         const me = await fetch(`https://api.telegram.org/bot${tok}/getMe`, { signal: AbortSignal.timeout(10000) }).then((r) => r.json()).catch(() => null);
         if (!me || !me.ok) return send(res, 200, { enabled: false });
-        // вебхук ставим сразу, не дожидаясь утреннего крона (идемпотентно)
-        await fetch(`https://api.telegram.org/bot${tok}/setWebhook`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: `${publicUrl(req)}/api/tg`, secret_token: hookSecret(), allowed_updates: ['message'] }), signal: AbortSignal.timeout(10000) }).catch(() => {});
+        // Вебхук боевого бота ставит только человек: scripts/tg-setup.js при TG_SETUP=1.
+        if (process.env.TG_SETUP === '1') {
+          await fetch(`https://api.telegram.org/bot${tok}/setWebhook`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: `${publicUrl(req)}/api/tg`, secret_token: hookSecret(), allowed_updates: ['message'] }), signal: AbortSignal.timeout(10000) }).catch(() => {});
+        }
         const c = await rpc('sv_tg_code', { p_token: token });
         return send(res, 200, { enabled: true, bot: me.result.username, url: `https://t.me/${me.result.username}?start=${c.code}`, group: `https://t.me/${me.result.username}?startgroup=${c.code}` });
       }

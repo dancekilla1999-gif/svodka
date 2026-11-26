@@ -1,0 +1,12 @@
+html, body { min-height: var(--tg-viewport-stable-height, 100dvh); background: var(--bg) !important; color: var(--ink); }
+.card, .topbar { background: var(--surface) !important; color: var(--ink); }
+.topbar { backdrop-filter: none; }
+body {
+  padding-top: var(--tg-content-safe-area-inset-top, env(safe-area-inset-top, 0px));
+  padding-bottom: var(--tg-content-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  padding-left: var(--tg-content-safe-area-inset-left, env(safe-area-inset-left, 0px));
+  padding-right: var(--tg-content-safe-area-inset-right, env(safe-area-inset-right, 0px));
+}
+.tg-open { max-width: 28rem; margin: 0 auto; }
+.tg-check { display: flex; gap: 10px; align-items: flex-start; }
+.tg-check input { width: 22px; height: 22px; margin-top: 2px; }

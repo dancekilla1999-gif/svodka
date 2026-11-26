@@ -4,10 +4,30 @@
   var SV = window.SV, h = SV.h;
 
   // ------------------------------------------------------------ сессия
-  function me() { try { return JSON.parse(SV.store.get("sv_owner") || "null"); } catch (e) { return null; } }
-  function setMe(o) { SV.store.set("sv_owner", o ? JSON.stringify(o) : null); }
-  function tok() { var o = me(); return o && o.token; }
-  function onAuth(e) { if (e.hint === "auth") { setMe(null); SV.toast(e.message, "bad"); SV.go("/login"); } throw e; }
+  function me() {
+    if (SV.session) return (SV.session.access || SV.session.email) ? { email: SV.session.email, name: SV.session.name, token: SV.session.access } : null;
+    return null;
+  }
+  function setMe(o) {
+    if (!SV.session) return;
+    if (!o) { SV.session.access = ""; SV.session.email = ""; SV.session.name = ""; return; }
+    if (o.token) SV.session.access = o.token;
+    if (o.email) SV.session.email = o.email;
+    if (o.name != null) SV.session.name = o.name;
+    try { localStorage.removeItem("sv_owner"); } catch (e) {}
+  }
+  function tok() { return (SV.session && SV.session.access) || ""; }
+  function onAuth(e) {
+    if (e.network || (e.status >= 500 && e.hint !== "disabled")) { if (SV.offline) SV.offline(); throw e; }
+    if (e.hint === "disabled") { if (SV.showDisabled) SV.showDisabled(); throw e; }
+    if (e.hint === "auth" || e.hint === "revoked") {
+      setMe(null);
+      if (SV.tg && SV.bootTelegram) { SV.bootTelegram(); throw e; }
+      SV.toast(e.message, "bad");
+      SV.go("/login");
+    }
+    throw e;
+  }
   function call(fn, args) { return SV.api(fn, Object.assign({ p_token: tok() }, args || {})).catch(onAuth); }
   function server(action, args) { return SV.fn(action, Object.assign({ token: tok() }, args || {})).catch(onAuth); }
   function rememberReturn() {
@@ -140,10 +160,13 @@
           }
         }
         btn.disabled = true;
-        var call = mode === "login"
-          ? SV.api("sv_login", { p_email: email.value, p_password: pass.value })
-          : SV.api("sv_register", { p_email: email.value, p_password: pass.value, p_name: name.value, p_offer: true, p_consent: true, p_doc_version: docVersion() });
-        call.then(function (r) { if (r && r.error) throw new Error(r.error); setMe(r); SV.go(takeReturn()); })
+        var flags = { p_offer: true, p_consent: true, p_doc_version: docVersion() };
+        var invite = "";
+        try { invite = sessionStorage.getItem("sv_invite") || ""; } catch (e) { invite = ""; }
+        var req = mode === "login"
+          ? SV.authFetch("/api/auth/login", { email: email.value, password: pass.value, device_label: SV.deviceLabel ? SV.deviceLabel() : "" })
+          : SV.authFetch("/api/auth/register", { email: email.value, password: pass.value, name: name.value, invite: invite, offer: flags.p_offer, consent: flags.p_consent, doc_version: flags.p_doc_version, device_label: SV.deviceLabel ? SV.deviceLabel() : "" });
+        req.then(function (r) { if (r && r.error) throw new Error(r.error); setMe({ token: r.token, email: r.email, name: r.name }); SV.go(takeReturn()); })
           .catch(function (e) { err.textContent = e.message; if (mode === "login") btn.disabled = false; else btn.disabled = !(offer.input.checked && consent.input.checked && !operatorGaps().length); });
       } },
         h("h1", { text: mode === "login" ? "Вход" : "Регистрация" }),
@@ -159,7 +182,20 @@
       legalLinks()));
   }
   SV.route("/login", function () { authPage("login"); });
-  SV.route("/register", function () { authPage("register"); });
+  SV.route("/register", function () {
+    var invite = "";
+    try { invite = sessionStorage.getItem("sv_invite") || ""; } catch (e) { invite = ""; }
+    if (!invite) {
+      SV.mount(h("main", { class: "page narrow" }, h("a", { class: "brand big", href: "#/", text: "Сводка" }),
+        h("div", { class: "card form", role: "alert" },
+          h("h1", { text: "Регистрация только по приглашению" }),
+          h("p", { text: "Публичной формы нет. Откройте ссылку, которую прислал Егор, или войдите, если аккаунт уже есть." }),
+          h("a", { class: "btn primary", href: "#/login", text: "Войти" })),
+        legalLinks()));
+      return;
+    }
+    authPage("register");
+  });
 
   // ------------------------------------------------------------ главная
   SV.route("/home", function () {
@@ -453,6 +489,108 @@
             h("li", null, h("span", { text: "Отчёт занимает слот лицензии API на несколько секунд и сразу его освобождает. Если все слоты заняты — уточните у вашего дилера iiko." }))))));
   }
 
+  SV.tariffLine = function (plan) {
+    if (!plan || !plan.plan || plan.status === "expired" || plan.status === "none") return "Подписка неактивна";
+    var title = "Сводка";
+    (plan.plans || []).forEach(function (p) { if (p.code === plan.plan) title = p.name || title; });
+    var until = plan.paid_until || plan.trial_until;
+    if (!until) return "Тариф: " + title;
+    var d = new Date(until);
+    if (isNaN(d.getTime())) return "Тариф: " + title;
+    return "Тариф: " + title + ", активен до " + d.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  };
+  function when(iso) {
+    if (!iso) return "—";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+  function passwordCard() {
+    var cur = h("input", { type: "password", autocomplete: "current-password", required: true });
+    var next = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: 8 });
+    var err = h("p", { class: "form-err", role: "alert" });
+    var btn = h("button", { class: "btn primary", type: "button", text: "Сменить пароль" });
+    btn.addEventListener("click", function () {
+      err.textContent = "";
+      btn.disabled = true;
+      SV.authFetch("/api/auth/password", { current: cur.value, "new": next.value }).then(function () {
+        btn.disabled = false;
+        cur.value = ""; next.value = "";
+        SV.toast(SV.tg ? "Пароль изменён. Этот Telegram остаётся привязанным." : "Пароль изменён. Вход через Telegram нужно привязать заново.");
+      }, function (e) { btn.disabled = false; err.textContent = e.message; });
+    });
+    return h("section", { class: "card form", style: "max-width:720px" },
+      h("h2", { text: "Пароль" }),
+      h("p", { class: "small muted", text: "Нужен текущий пароль. Остальные входы завершатся." }),
+      h("label", null, "Текущий пароль", cur),
+      h("label", null, "Новый пароль", next),
+      err, btn);
+  }
+  function devicesCard() {
+    var box = h("div", { class: "form" });
+    box.appendChild(SV.loading("Загружаю устройства…"));
+    function paint(d) {
+      box.textContent = "";
+      if (d.bound) box.appendChild(h("p", null, "Привязан Telegram ", h("b", { text: d.username ? "@" + d.username : "без username" })));
+      if (d.recent) box.appendChild(h("div", { class: "notice", role: "status" }, h("div", null, "Недавно привязали Telegram. Если это были не вы, нажмите «Это не я» на странице с кодом или завершите устройство Telegram здесь.")));
+      (d.devices || []).forEach(function (row) {
+        var kind = row.kind === "tg" ? "Telegram" : "Сайт";
+        box.appendChild(h("div", { class: "row", style: "justify-content:space-between;align-items:center" },
+          h("div", null,
+            h("b", { text: kind + (row.label ? " · " + row.label : "") + (row.current ? " · это устройство" : "") }),
+            h("p", { class: "small muted", text: "Вход " + when(row.created_at) + " · был " + when(row.last_used_at) })),
+          row.current ? null : h("button", { class: "btn small danger", type: "button", text: "Завершить", onclick: function () {
+            SV.authFetch("/api/auth/devices/" + row.id + "/end", {}).then(function () { SV.dispatch(); }, fail);
+          } })));
+      });
+      box.appendChild(h("button", { class: "btn danger", type: "button", text: "Выйти на всех устройствах", onclick: function () {
+        SV.confirm("Выйти везде?", "Все сессии и привязка Telegram будут сняты.", "Выйти везде", function () {
+          SV.authFetch("/api/auth/logout-all", {}).then(function () { setMe(null); SV.go("/"); }, fail);
+        }, true);
+      } }));
+    }
+    SV.authFetch("/api/auth/devices", {}).then(paint, function (e) { box.textContent = ""; box.appendChild(h("p", { text: e.message })); });
+    return h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Устройства" }), box);
+  }
+  function linkLoginCard(d) {
+    var box = h("div", { class: "form" });
+    var login = d.tg_login || {};
+    if (login.bound) {
+      box.appendChild(h("p", null, "Вход без пароля: ", h("b", { text: login.username ? "@" + login.username : (login.first_name || "Telegram") })));
+      return h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Вход через Telegram" }), box);
+    }
+    var btn = h("button", { class: "btn primary", type: "button", text: "Привязать Telegram" });
+    box.appendChild(h("p", { class: "small muted", text: "Кнопка откроет кабинет в Telegram. Код действует 10 минут и только один раз." }));
+    box.appendChild(btn);
+    btn.addEventListener("click", function () {
+      btn.disabled = true;
+      SV.authFetch("/api/auth/link-code", {}).then(function (r) {
+        btn.disabled = false;
+        var url = r.url || "";
+        var hold = h("div", { class: "form" });
+        hold.appendChild(h("p", { class: "small", text: url || "Имя бота ещё не задано. Код: " + r.start }));
+        if (url && SV.qrSvg) hold.appendChild(SV.qrSvg(url, 220));
+        if (url) hold.appendChild(h("a", { class: "btn", href: url, target: "_blank", rel: "noopener", text: "Открыть в Telegram" }));
+        var who = h("p", { class: "small" });
+        hold.appendChild(who);
+        box.appendChild(hold);
+        var timer = setInterval(function () {
+          SV.authFetch("/api/auth/link-status", { code: r.code }).then(function (s) {
+            if (!s || !s.bound) return;
+            clearInterval(timer);
+            who.textContent = "";
+            who.appendChild(document.createTextNode("Привязан Telegram " + (s.username ? "@" + s.username : "") + " — это вы? "));
+            who.appendChild(h("button", { class: "btn small danger", type: "button", text: "Это не я", onclick: function () {
+              SV.authFetch("/api/auth/link-dispute", { code: r.code }).then(function () { SV.toast("Telegram отвязан"); SV.dispatch(); }, fail);
+            } }));
+          }, function () {});
+        }, 2000);
+        window.addEventListener("hashchange", function stop() { clearInterval(timer); window.removeEventListener("hashchange", stop); });
+      }, function (e) { btn.disabled = false; fail(e); });
+    });
+    return h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Вход через Telegram" }), box);
+  }
+
   // ------------------------------------------------------------ настройки
   SV.route("/settings", function () {
     if (!need()) return;
@@ -505,9 +643,12 @@
         }, function (e) { ev.target.disabled = false; fail(e); });
       } }));
     }
-    return page(
+    var built = page(
       h("div", { class: "page-head" }, h("div", null, h("span", { class: "label", text: "Настройки" }), h("h1", { text: "Аккаунт" }))),
-      h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Telegram" }), tgBox),
+      h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Чат отчётов" }), tgBox),
+      linkLoginCard(d),
+      devicesCard(),
+      passwordCard(),
       c ? h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Ежедневный отчёт" }),
         h("label", { class: "check" }, h("input", { type: "checkbox", checked: c.auto, onchange: function (ev) {
           call("sv_conn_update", { p_patch: { auto: ev.target.checked } }).then(function () { SV.toast("Сохранено"); }, fail);
@@ -519,7 +660,7 @@
               call("sv_conn_remove").then(function () { SV.go("/home"); }, fail);
             }, true);
           } }) : null)) : null,
-      (function () {
+      SV.tg ? null : (function () {
         var prefs = d.prefs || {};
         var defNon = "334 Андрей Михайлович\n335 Алексей Р.Ш.\n338 Расим\n49 Представительская оплата\n19 Антон бухгалтер\n336 Надежда\n20 Маркетинг\n88 Захар\n88 Персонал";
         var defPromo = "ПромоБезОплаты";
@@ -546,11 +687,21 @@
           h("label", null, "Промо, которое входит в выручку", promo),
           btn);
       })(),
-      h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Тариф" }),
+      SV.tg ? h("section", { class: "card form", id: "tg-tariff", style: "max-width:720px" }, h("h2", { text: "Тариф" }),
+        h("p", { id: "tg-tariff-line", text: "Подписка неактивна" }))
+        : h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Тариф" }),
         h("p", { class: "muted small", text: TRIAL + " «Смена» 1 990 ₽/мес — отчёт по смене, агенты «Смена» и «Закупки»; «Контроль» 2 990 ₽/мес — вся команда агентов: финансы и прибыль, персонал, меню, ИИ-управляющий в Telegram; «Сеть» 4 990 ₽/мес — до 5 точек." }),
         legalLinks()),
-      h("section", { class: "card form", style: "max-width:720px" }, h("button", { class: "btn ghost", text: "Выйти из аккаунта", onclick: function () {
-        call("sv_logout").catch(function () {}).then(function () { setMe(null); SV.go("/"); });
+      h("section", { class: "card form", style: "max-width:720px" }, h("button", { class: "btn ghost", text: SV.tg ? "Выйти и отвязать Telegram" : "Выйти из аккаунта", onclick: function () {
+        var job = SV.tg ? SV.authFetch("/api/tg/unbind", {}) : SV.authFetch("/api/auth/logout", {});
+        job.catch(function () {}).then(function () { setMe(null); SV.go("/"); });
       } })));
+    if (SV.tg) {
+      call("sv_plan").then(function (plan) {
+        var line = document.getElementById("tg-tariff-line");
+        if (line) line.textContent = SV.tariffLine(plan);
+      }, function () {});
+    }
+    return built;
   }
 })();

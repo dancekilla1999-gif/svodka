@@ -1,4 +1,5 @@
 {
+  "regions": ["fra1"],
   "functions": {
     "api/*.js": {
       "maxDuration": 60
@@ -8,61 +9,68 @@
     {
       "path": "/api/cron",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/auth/purge",
+      "schedule": "15 * * * *"
     }
   ],
   "headers": [
     {
       "source": "/vendor/(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        }
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
     },
     {
       "source": "/media/(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=604800"
-        }
+        { "key": "Cache-Control", "value": "public, max-age=604800" }
       ]
     },
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "strict-origin-when-cross-origin"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        }
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    },
+    {
+      "source": "/((?!tg(?:/|$)).*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "DENY" }
+      ]
+    },
+    {
+      "source": "/app",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://qozyihhlocvgpkchyqsp.supabase.co; frame-ancestors 'none'; object-src 'none'; base-uri 'none'" }
+      ]
+    },
+    {
+      "source": "/app/(.*)",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://qozyihhlocvgpkchyqsp.supabase.co; frame-ancestors 'none'; object-src 'none'; base-uri 'none'" }
+      ]
+    },
+    {
+      "source": "/tg",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://qozyihhlocvgpkchyqsp.supabase.co; object-src 'none'; base-uri 'none'; frame-ancestors https://web.telegram.org https://*.telegram.org" }
+      ]
+    },
+    {
+      "source": "/tg/(.*)",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://qozyihhlocvgpkchyqsp.supabase.co; object-src 'none'; base-uri 'none'; frame-ancestors https://web.telegram.org https://*.telegram.org" }
       ]
     }
   ],
   "rewrites": [
-    {
-      "source": "/app/r/:id",
-      "destination": "/app/index.html"
-    },
-    {
-      "source": "/legal",
-      "destination": "/legal/index.html"
-    },
-    {
-      "source": "/legal/:doc",
-      "destination": "/legal/index.html"
-    },
-    {
-      "source": "/legal/:doc/",
-      "destination": "/legal/index.html"
-    }
+    { "source": "/tg", "destination": "/tg/index.html" },
+    { "source": "/app/r/:id", "destination": "/app/index.html" },
+    { "source": "/legal", "destination": "/legal/index.html" },
+    { "source": "/legal/:doc", "destination": "/legal/index.html" },
+    { "source": "/legal/:doc/", "destination": "/legal/index.html" }
   ]
 }

@@ -6,6 +6,8 @@ const { buildReport } = require('./report');
 const { demoReport, demoPurchases } = require('./demo');
 const { collectPurchases } = require('./purchases');
 const { reportText, tgSend } = require('./text');
+const { reportOpenLink } = require('./common');
+const { maskStaff, staffNames } = require('./roles');
 const A = require('./agents');
 
 // доступ к базе от имени владельца: по токену (кабинет) или по секрету крона (сервер)
@@ -68,8 +70,9 @@ async function runDay(db, conn, day, opts = {}) {
   let sent = false;
   if (opts.chatId && opts.send !== false) {
     // Ссылка без # — Telegram и ins-браузеры часто отрезают якорь, и человек попадал на оболочку кабинета, а не в отчёт.
-    const link = opts.base ? `${opts.base}/app/r/${saved.id}` : null;
-    sent = await tgSend(opts.chatId, reportText(report, link, A.tgDailyExtra(pr, tip))).catch(() => false);
+    const link = reportOpenLink(opts.base, saved.id);
+    const names = staffNames(report);
+    sent = await tgSend(opts.chatId, maskStaff(reportText(report, link, A.tgDailyExtra(pr, tip)), names)).catch(() => false);
     if (week && prefs.weekly_tg) await tgSend(opts.chatId, A.tgWeekly(week.director, week.finance, opts.base ? `${opts.base}/app/#/agents` : null)).catch(() => false);
   }
   return { id: saved.id, sent, week: !!week, shift: sh, purchases: pr, tip };

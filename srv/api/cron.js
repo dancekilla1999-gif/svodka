@@ -13,7 +13,7 @@ module.exports = async function handler(req, res) {
   if (!secret || !same(req.headers.authorization, `Bearer ${secret}`)) return send(res, 401, { error: 'unauthorized' });
   const base = publicUrl(req);
   // вебхук бота (идемпотентно): нужен и для привязки чата, и для вопросов управляющему
-  if (process.env.TG_BOT_TOKEN) {
+  if (process.env.TG_SETUP === '1' && process.env.TG_BOT_TOKEN) {
     await fetch(`https://api.telegram.org/bot${process.env.TG_BOT_TOKEN}/setWebhook`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: `${base}/api/tg`, secret_token: hookSecret(), allowed_updates: ['message'] }), signal: AbortSignal.timeout(10000) }).catch(() => {});
   }
