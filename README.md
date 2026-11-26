@@ -70,6 +70,8 @@ TG_SESSION_SECRET=... DATABASE_URL=postgres://... node scripts/set-session-secre
 
 `/start` с кодом из 18 hex по-прежнему привязывает чат утренних отчётов. Код привязки входа начинается с `l_` и в этот вебхук не подставляется.
 
+Чистка одноразовых `initData` и журнала старше года — `POST /api/auth/purge` с `Authorization: Bearer $CRON_SECRET`. На Vercel Hobby отдельное расписание чаще раза в сутки не ставится, поэтому та же чистка вызывается из утреннего `/api/cron`. На Timeweb её можно повесить раз в час.
+
 Утренний отчёт, если задан `TG_BOT_USERNAME`, ссылается на `t.me/<bot>/app?startapp=r_<id>`. В тексте для Telegram имена сотрудников заменяются на «официант N».
 
 Этап 2 (не позже 10.12.2026): тот же набор путей на nginx, черновик `deploy/nginx.conf`. До проверки региона функций в политике по-прежнему: Vercel — США, Supabase — Германия (Франкфурт). В `vercel.json` указан `regions: ["fra1"]`.
