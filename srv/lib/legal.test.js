@@ -12,7 +12,6 @@ const placeholders = [
   '[УКАЖИТЕ ЮРИДИЧЕСКИЙ АДРЕС]',
   '[УКАЖИТЕ EMAIL]',
   '[УКАЖИТЕ ТЕЛЕФОН]',
-  '[УКАЖИТЕ РЕГИОН SUPABASE]',
   '[УКАЖИТЕ НОМЕР УВЕДОМЛЕНИЯ РКН]',
   '[УКАЖИТЕ УВЕДОМЛЕНИЕ РКН О ТРАНСГРАНИЧНОЙ ПЕРЕДАЧЕ]',
   '[УКАЖИТЕ СУД]'
@@ -42,6 +41,12 @@ function testConfig() {
   assert.doesNotMatch(render, /платёжная сторона/);
   assert.doesNotMatch(render, /на территории России/);
   assert.doesNotMatch(render, /хранятся в России/);
+  assert.match(op, /ЕС, Германия \(Франкфурт\), eu-central-1/);
+  assert.doesNotMatch(op, /\[УКАЖИТЕ РЕГИОН SUPABASE\]/);
+  assert.doesNotMatch(render, /Supabase Inc\., США/);
+  assert.doesNotMatch(render, /находятся в США/);
+  assert.match(render, /Европейский союз \(Германия, Франкфурт\)/);
+  assert.match(render, /Vercel Inc\., США/);
   assert.match(render, /США/);
   assert.match(render, /ЮKassa/);
   assert.match(render, /почтовый сервис/);

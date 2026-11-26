@@ -5,7 +5,7 @@ window.SV_LEGAL = {
   service: "Сводка",
   site: "https://svodka-egor12.vercel.app",
   updated: "26 ноября 2026 г.",
-  version: "2026-11-26",
+  version: "2026-11-26.2",
   operator: {
     name: "[УКАЖИТЕ ПОЛНОЕ НАИМЕНОВАНИЕ]",
     inn: "[УКАЖИТЕ ИНН]",
@@ -14,7 +14,7 @@ window.SV_LEGAL = {
     email: "[УКАЖИТЕ EMAIL]",
     phone: "[УКАЖИТЕ ТЕЛЕФОН]"
   },
-  supabaseRegion: "[УКАЖИТЕ РЕГИОН SUPABASE]",
+  supabaseRegion: "ЕС, Германия (Франкфурт), eu-central-1",
   rknNotice: "[УКАЖИТЕ НОМЕР УВЕДОМЛЕНИЯ РКН]",
   rknCrossBorder: "[УКАЖИТЕ УВЕДОМЛЕНИЕ РКН О ТРАНСГРАНИЧНОЙ ПЕРЕДАЧЕ]",
   court: "[УКАЖИТЕ СУД]"
