@@ -91,6 +91,11 @@
   }
   function trioLink() { return el("a", { class: "tb-trio", href: C.trio, target: "_blank", rel: "noopener" }, el("span", { text: "Нужны все три сервиса — обучение, журналы и отчёты из iiko?" }), el("b", { text: "Пакет «Трио» 5 990 ₽ →" })); }
   function docLink(href, text) { return el("a", { href: href, target: "_blank", rel: "noopener", text: text }); }
+  function docVersion() {
+    var C = window.SV_LEGAL;
+    var v = C && (C.version || C.updated);
+    return v ? String(v).trim() : "";
+  }
   function agreeBox(id, parts) {
     var input = el("input", { type: "checkbox", id: id });
     var span = el("span");
@@ -105,14 +110,9 @@
     var btn = form.querySelector("button[type=submit]"); if (!btn) return;
     var list = plans(); var cur = defaultPlan(list); sset(PICK, cur);
     var box = picker(list, cur, function (code) { sset(PICK, code); });
-    var anchor = btn.previousElementSibling && btn.previousElementSibling.getAttribute("role") === "alert" ? btn.previousElementSibling : btn;
-    var offer = agreeBox("tb_offer", ["Принимаю ", docLink("/legal/offer", "публичную оферту"), "."]);
-    var consent = agreeBox("tb_consent", ["Даю отдельное ", docLink("/legal/consent", "согласие на обработку персональных данных"), " по ", docLink("/legal/privacy", "политике конфиденциальности"), "."]);
+    var offer = form.querySelector("#sv_offer");
+    var anchor = offer ? offer.closest("label") : (btn.previousElementSibling && btn.previousElementSibling.getAttribute("role") === "alert" ? btn.previousElementSibling : btn);
     btn.parentNode.insertBefore(box, anchor);
-    btn.parentNode.insertBefore(offer.label, anchor);
-    btn.parentNode.insertBefore(consent.label, anchor);
-    btn.parentNode.insertBefore(el("p", { class: "tb-note", text: "7 дней бесплатно, карта не нужна. Тариф можно поменять в любой момент." }), btn.nextSibling);
-    if (btn.textContent.indexOf("7 дн") < 0) btn.textContent = "Создать аккаунт — 7 дней бесплатно";
   }
 
   // ---------- кабинет: тариф выбран? показываем плашку; не выбран — сначала выбор
@@ -175,7 +175,7 @@
     var box = el("div", { class: "card tb-box", role: "dialog", "aria-modal": "true", "aria-label": "Тариф" },
       el("span", { class: "label", text: C.name || "Тариф" }),
       el("h2", { text: first ? "Выберите тариф" : "Ваш тариф" }),
-      !first ? el("div", { class: "tb-status" + (state.status === "expired" ? " exp" : ""), text: statusText() }) : el("p", { class: "muted small", text: "Первые 7 дней — бесплатно и со всеми функциями. Платить сейчас ничего не нужно." }),
+      !first ? el("div", { class: "tb-status" + (state.status === "expired" ? " exp" : ""), text: statusText() }) : el("p", { class: "muted small", text: "Первые 7 дней — бесплатно, карта не нужна. В эти дни открыты все функции и все агенты." }),
       picker(list, cur, function (c) { cur = c; }), err, btn);
     if (!first) {
       var payBox = el("div", { class: "tb-pay" });
@@ -192,29 +192,28 @@
             docLink("/legal/offer", "Оферта"), ", ", docLink("/legal/consent", "согласие"), " и ", docLink("/legal/privacy", "политика"), " — те же, что при регистрации."));
         } else {
           var phone = el("input", { type: "tel", inputmode: "tel", autocomplete: "tel", placeholder: "Телефон для связи (необязательно)", maxlength: "40" });
-          var payConsent = agreeBox("tb_pay_consent", ["Даю ", docLink("/legal/consent", "согласие"), " на обработку этого телефона для счёта по ", docLink("/legal/privacy", "политике конфиденциальности"), "."]);
+          var payConsent = agreeBox("tb_pay_consent", ["Принимаю ", docLink("/legal/offer", "оферту"), " и даю отдельное ", docLink("/legal/consent", "согласие"), " на обработку почты и телефона для счёта по ", docLink("/legal/privacy", "политике"), "."]);
           var ok = el("p", { class: "tb-note" });
-          var inv = el("button", { type: "button", class: "btn wide", text: "Запросить счёт на оплату" });
+          var inv = el("button", { type: "button", class: "btn wide", text: "Запросить счёт на оплату", disabled: true });
+          function syncInv() { inv.disabled = !payConsent.input.checked; if (payConsent.input.checked) payConsent.label.classList.remove("tb-need"); }
+          payConsent.input.addEventListener("change", syncInv);
           inv.addEventListener("click", function () {
             var raw = phone.value.trim();
             var digits = raw.replace(/\D/g, "");
             ok.textContent = "";
-            payConsent.label.classList.remove("tb-need");
-            if (raw && digits.length < 10) { ok.textContent = "Проверьте номер телефона"; phone.focus(); return; }
-            if (raw && !payConsent.input.checked) {
+            if (!payConsent.input.checked || !docVersion()) {
               payConsent.label.classList.add("tb-need");
-              ok.textContent = "Чтобы указать телефон, нужно согласие на его обработку.";
+              ok.textContent = docVersion() ? "Нужно отдельное согласие на обработку данных для счёта." : "Не удалось прочитать редакцию документов. Обновите страницу.";
               payConsent.input.focus();
               return;
             }
+            if (raw && digits.length < 10) { ok.textContent = "Проверьте номер телефона"; phone.focus(); return; }
             inv.disabled = true;
-            api("invoice", { p_token: token(), p_phone: phone.value, p_comment: "" }).then(function () { ok.textContent = "Готово — пришлём счёт на почту аккаунта в течение рабочего дня."; })
-              .catch(function (e) { ok.textContent = e.message; }).then(function () { inv.disabled = false; });
-          });
-          payConsent.input.addEventListener("change", function () {
-            if (!payConsent.input.checked) return;
-            payConsent.label.classList.remove("tb-need");
-            if (ok.textContent === "Чтобы указать телефон, нужно согласие на его обработку.") ok.textContent = "";
+            api("invoice", {
+              p_token: token(), p_phone: phone.value, p_comment: "",
+              p_offer: true, p_consent: true, p_doc_version: docVersion()
+            }).then(function () { ok.textContent = "Готово — пришлём счёт на почту аккаунта в течение рабочего дня."; })
+              .catch(function (e) { ok.textContent = e.message; }).then(function () { syncInv(); });
           });
           payBox.appendChild(el("div", { class: "tb-row" }, phone));
           payBox.appendChild(payConsent.label);
@@ -231,48 +230,6 @@
     document.body.appendChild(M);
     var r = box.querySelector("input[type=radio]:checked") || box.querySelector("button"); if (r) r.focus();
   }
-
-  // без двух отдельных отметок форму регистрации не отправляем (перехват до обработчика приложения)
-  document.addEventListener("submit", function (e) {
-    if (path() !== "/register") return;
-    var offer = document.getElementById("tb_offer");
-    var consent = document.getElementById("tb_consent");
-    if (!offer || !consent) return;
-    var missing = [];
-    if (!offer.checked) missing.push(offer);
-    if (!consent.checked) missing.push(consent);
-    [offer, consent].forEach(function (box) {
-      var lab = box.closest("label");
-      if (lab) lab.classList.toggle("tb-need", missing.indexOf(box) >= 0);
-    });
-    if (!missing.length) return;
-    e.preventDefault(); e.stopImmediatePropagation();
-    var form = offer.closest("form");
-    var err = form && form.querySelector(".form-err");
-    var msg = missing.length === 2
-      ? "Примите оферту и дайте отдельное согласие на обработку персональных данных."
-      : (missing[0] === offer ? "Примите оферту." : "Нужно отдельное согласие на обработку персональных данных.");
-    if (err) err.textContent = msg;
-    if (!offer._svNoted) {
-      offer._svNoted = true;
-      function sync() {
-        var still = [];
-        if (!offer.checked) still.push(offer);
-        if (!consent.checked) still.push(consent);
-        [offer, consent].forEach(function (box) {
-          var lab = box.closest("label");
-          if (lab) lab.classList.toggle("tb-need", still.indexOf(box) >= 0);
-        });
-        if (!err) return;
-        if (!still.length) err.textContent = "";
-        else if (still.length === 2) err.textContent = "Примите оферту и дайте отдельное согласие на обработку персональных данных.";
-        else err.textContent = still[0] === offer ? "Примите оферту." : "Нужно отдельное согласие на обработку персональных данных.";
-      }
-      offer.addEventListener("change", sync);
-      consent.addEventListener("change", sync);
-    }
-    missing[0].focus();
-  }, true);
 
   // уведомление о cookies
   function cookieNote() {

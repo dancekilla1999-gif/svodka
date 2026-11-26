@@ -54,6 +54,26 @@
         return h("a", { href: x[0], text: x[1] });
       }));
   }
+  var TRIAL = "Первые 7 дней — бесплатно, карта не нужна. В эти дни открыты все функции и все агенты.";
+  function operatorGaps() {
+    var C = window.SV_LEGAL;
+    if (!C || !C.operator) return ["реквизиты оператора"];
+    var gaps = [];
+    [["название", C.operator.name], ["ИНН", C.operator.inn], ["ОГРН", C.operator.ogrn], ["адрес", C.operator.address], ["почта", C.operator.email]].forEach(function (f) {
+      if (f[1] == null || !String(f[1]).trim() || String(f[1]).indexOf("[УКАЖИТЕ") === 0) gaps.push(f[0]);
+    });
+    if (!docVersion()) gaps.push("редакцию документов");
+    return gaps;
+  }
+  function docVersion() {
+    var C = window.SV_LEGAL;
+    var v = C && (C.version || C.updated);
+    return v ? String(v).trim() : "";
+  }
+  function agreeLabel(id, parts) {
+    var input = h("input", { type: "checkbox", id: id });
+    return { input: input, label: h("label", { class: "tb-agree", for: id }, input, h("span", null, parts)) };
+  }
 
   SV.app = { me: me, tok: tok, call: call, server: server, need: need, fail: fail, onAuth: onAuth, topbar: topbar, page: page, money: money, int: int, pct: pct, dayShort: dayShort, dayLong: dayLong, mskDay: mskDay, table: function () { return table.apply(null, arguments); } };
 
@@ -85,18 +105,55 @@
     ruField(pass, "Введите пароль", "Проверьте пароль");
     var name = h("input", { id: "name", name: "name", autocomplete: "name", placeholder: "Как к вам обращаться" });
     var err = h("p", { class: "form-err", role: "alert" });
-    var btn = h("button", { class: "btn primary wide", type: "submit", text: mode === "login" ? "Войти" : "Создать аккаунт" });
+    var btn = h("button", { class: "btn primary wide", type: "submit", text: mode === "login" ? "Войти" : "Создать аккаунт — 7 дней бесплатно", disabled: mode === "register" });
+    var offer = null, consent = null, closed = null;
+    if (mode === "register") {
+      offer = agreeLabel("sv_offer", ["Принимаю ", h("a", { href: "/legal/offer", target: "_blank", rel: "noopener", text: "публичную оферту" }), "."]);
+      consent = agreeLabel("sv_consent", ["Даю отдельное ", h("a", { href: "/legal/consent", target: "_blank", rel: "noopener", text: "согласие на обработку персональных данных" }), " по ", h("a", { href: "/legal/privacy", target: "_blank", rel: "noopener", text: "политике конфиденциальности" }), "."]);
+      var gaps = operatorGaps();
+      closed = gaps.length ? h("p", { class: "form-err", role: "status", text: "Регистрация закрыта, пока в документах не заполнены: " + gaps.join(", ") + ". Их меняют в public/legal/operator.js." }) : null;
+      function syncReg() {
+        var ready = !gaps.length && offer.input.checked && consent.input.checked;
+        btn.disabled = !ready;
+        if (ready) {
+          err.textContent = "";
+          offer.label.classList.remove("tb-need");
+          consent.label.classList.remove("tb-need");
+        }
+      }
+      offer.input.addEventListener("change", syncReg);
+      consent.input.addEventListener("change", syncReg);
+      syncReg();
+    }
     SV.mount(h("main", { class: "page narrow" }, h("a", { class: "brand big", href: "#/", text: "Сводка" }),
       h("form", { class: "card form", onsubmit: function (ev) {
-        ev.preventDefault(); err.textContent = ""; btn.disabled = true;
-        (mode === "login" ? SV.api("sv_login", { p_email: email.value, p_password: pass.value }) : SV.api("sv_register", { p_email: email.value, p_password: pass.value, p_name: name.value }))
-          .then(function (r) { if (r && r.error) throw new Error(r.error); setMe(r); SV.go(takeReturn()); })
-          .catch(function (e) { err.textContent = e.message; btn.disabled = false; });
+        ev.preventDefault(); err.textContent = "";
+        if (mode === "register") {
+          if (operatorGaps().length || !offer.input.checked || !consent.input.checked || !docVersion()) {
+            btn.disabled = true;
+            if (!offer.input.checked) offer.label.classList.add("tb-need");
+            if (!consent.input.checked) consent.label.classList.add("tb-need");
+            err.textContent = operatorGaps().length
+              ? "Регистрация закрыта: в документах ещё нет реквизитов оператора."
+              : "Примите оферту и дайте отдельное согласие на обработку персональных данных.";
+            return;
+          }
+        }
+        btn.disabled = true;
+        var call = mode === "login"
+          ? SV.api("sv_login", { p_email: email.value, p_password: pass.value })
+          : SV.api("sv_register", { p_email: email.value, p_password: pass.value, p_name: name.value, p_offer: true, p_consent: true, p_doc_version: docVersion() });
+        call.then(function (r) { if (r && r.error) throw new Error(r.error); setMe(r); SV.go(takeReturn()); })
+          .catch(function (e) { err.textContent = e.message; if (mode === "login") btn.disabled = false; else btn.disabled = !(offer.input.checked && consent.input.checked && !operatorGaps().length); });
       } },
         h("h1", { text: mode === "login" ? "Вход" : "Регистрация" }),
         mode === "register" ? h("label", null, "Имя", name) : null,
         h("label", null, "Почта", email),
-        h("label", null, "Пароль" + (mode === "register" ? " (от 8 символов)" : ""), pass), err, btn,
+        h("label", null, "Пароль" + (mode === "register" ? " (от 8 символов)" : ""), pass),
+        offer ? offer.label : null,
+        consent ? consent.label : null,
+        closed, err, btn,
+        mode === "register" ? h("p", { class: "small muted", text: TRIAL }) : null,
         (function () { try { return sessionStorage.getItem("sv_return"); } catch (e) { return null; } })() ? h("p", { class: "small center muted", text: "После входа откроется полный отчёт по смене." }) : null,
         h("p", { class: "small center" }, mode === "login" ? h("a", { class: "auth-alt", href: "#/register", text: "Нет аккаунта? Регистрация" }) : h("a", { class: "auth-alt", href: "#/login", text: "Уже есть аккаунт? Войти" }))),
       legalLinks()));
@@ -490,7 +547,7 @@
           btn);
       })(),
       h("section", { class: "card form", style: "max-width:720px" }, h("h2", { text: "Тариф" }),
-        h("p", { class: "muted small", text: "Пробный период — 7 дней, все функции и все агенты открыты. «Смена» 1 990 ₽/мес — отчёт по смене, агенты «Смена» и «Закупки»; «Контроль» 2 990 ₽/мес — вся команда агентов: финансы и прибыль, персонал, меню, ИИ-управляющий в Telegram; «Сеть» 4 990 ₽/мес — до 5 точек." }),
+        h("p", { class: "muted small", text: TRIAL + " «Смена» 1 990 ₽/мес — отчёт по смене, агенты «Смена» и «Закупки»; «Контроль» 2 990 ₽/мес — вся команда агентов: финансы и прибыль, персонал, меню, ИИ-управляющий в Telegram; «Сеть» 4 990 ₽/мес — до 5 точек." }),
         legalLinks()),
       h("section", { class: "card form", style: "max-width:720px" }, h("button", { class: "btn ghost", text: "Выйти из аккаунта", onclick: function () {
         call("sv_logout").catch(function () {}).then(function () { setMe(null); SV.go("/"); });

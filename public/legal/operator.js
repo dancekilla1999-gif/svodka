@@ -5,6 +5,7 @@ window.SV_LEGAL = {
   service: "Сводка",
   site: "https://svodka-egor12.vercel.app",
   updated: "26 ноября 2026 г.",
+  version: "2026-11-26",
   operator: {
     name: "[УКАЖИТЕ ПОЛНОЕ НАИМЕНОВАНИЕ]",
     inn: "[УКАЖИТЕ ИНН]",

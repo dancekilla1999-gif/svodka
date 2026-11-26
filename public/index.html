@@ -68,7 +68,7 @@
 
 <section class="blk c-svodka" id="agents" data-shape="3" data-x="-2.6" data-alpha="0.45">
   <div class="wrap">
-    <div class="blk-head"><h2 class="split">Шесть агентов <em>разбирают iiko за вас</em></h2><p class="lead rv">Цифры считает сервис, а выводы и советы пишет ИИ (YandexGPT, данные остаются в России). Отчёты агентов — в кабинете и в Telegram, вопросы можно задавать обычным текстом. Внутри кабинета — пошаговая помощь: что нажать и куда, без звонков в поддержку.</p></div>
+    <div class="blk-head"><h2 class="split">Шесть агентов <em>разбирают iiko за вас</em></h2><p class="lead rv">Цифры считает сервис, а выводы и советы пишет ИИ (YandexGPT). Отчёты агентов — в кабинете и в Telegram, вопросы можно задавать обычным текстом. Внутри кабинета — пошаговая помощь: что нажать и куда, без звонков в поддержку.</p></div>
     <div class="feat"><div class="rv d1"><i>🧭 АГЕНТ</i><b>Управляющий</b><p>Каждый понедельник — план на неделю с цифрами. Отвечает на вопросы: «почему упала выручка?», «что подорожало?»</p></div><div class="rv d2"><i>🧾 АГЕНТ</i><b>Смена</b><p>Выручка, себестоимость и прибыль каждой смены, подозрительные удаления и скидки.</p></div><div class="rv d3"><i>🛒 АГЕНТ</i><b>Закупки</b><p>Читает накладные iiko: что подорожало, у какого поставщика и во сколько обходится переплата.</p></div><div class="rv d1"><i>📈 АГЕНТ</i><b>Финансы</b><p>Доходы, расходы и прибыль за неделю, фудкост, доля ФОТ и прогноз на месяц.</p></div><div class="rv d2"><i>👥 АГЕНТ</i><b>Персонал</b><p>Кого из официантов похвалить, с кем поговорить, в какие часы людей больше, чем гостей.</p></div><div class="rv d3"><i>🍽 АГЕНТ</i><b>Меню</b><p>Звёзды, «рабочие лошадки» и блюда на вывод — по продажам и марже.</p></div></div>
   </div>
 </section>
@@ -95,9 +95,20 @@
     <div><h4>Сервисы</h4><a href="https://podacha-egor12.vercel.app/">Подача — обучение зала</a><a href="https://zhurnalka.vercel.app/">Журналка — санжурналы</a><a href="/">Сводка — отчёты из iiko</a><a href="https://trio-resto-egor12.vercel.app/trio">Пакет «Трио»</a></div>
     <div><h4>Войти в кабинет</h4><a href="https://podacha-egor12.vercel.app/app/#/login">Подача</a><a href="https://zhurnalka.vercel.app/app/#/login">Журналка</a><a href="/app/#/login">Сводка</a></div>
   </div>
-  <div class="wrap legal-links"><a href="mailto:dancekilla1999@gmail.com">dancekilla1999@gmail.com</a><a href="/legal/offer">Оферта</a><a href="/legal/privacy">Политика конфиденциальности</a><a href="/legal/consent">Согласие на обработку данных</a><a href="/legal/cookies">Cookies</a></div>
+  <div class="wrap legal-links"><a id="operator-mail">Почта оператора</a><a href="/legal/offer">Оферта</a><a href="/legal/privacy">Политика конфиденциальности</a><a href="/legal/consent">Согласие на обработку данных</a><a href="/legal/cookies">Cookies</a></div>
   <div class="wrap small" style="margin-top:18px">© 2026 «Трио». iiko — товарный знак правообладателя; сервисы не аффилированы с iiko. Журналка помогает вести журналы, но не заменяет программу производственного контроля.</div>
 </footer>
+<script src="/legal/operator.js?v=2"></script>
+<script>
+(function () {
+  var link = document.getElementById("operator-mail");
+  var email = window.SV_LEGAL && window.SV_LEGAL.operator && window.SV_LEGAL.operator.email;
+  if (!link || !email) return;
+  link.textContent = email;
+  if (String(email).indexOf("[УКАЖИТЕ") === 0) link.removeAttribute("href");
+  else link.setAttribute("href", "mailto:" + email);
+})();
+</script>
 <script type="module" src="/js/main.js?v=15"></script>
 </body>
 </html>

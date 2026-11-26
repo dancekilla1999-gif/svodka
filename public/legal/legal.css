@@ -6,6 +6,10 @@
   border: 1.5px solid var(--line); border-radius: 6px; text-decoration: none; color: var(--ink); background: var(--surface);
 }
 .legal-nav a[aria-current="page"] { border-color: var(--ink); font-weight: 700; }
+@media (max-width: 420px) {
+  .legal-nav { flex-wrap: nowrap; gap: 6px; }
+  .legal-nav a { flex: 1 1 0; justify-content: center; padding: 8px 4px; font-size: .82rem; min-width: 0; }
+}
 .legal-doc h2 { margin: 1.35rem 0 .45rem; }
 .legal-doc p, .legal-doc li { margin: 0 0 .7rem; }
 .legal-doc ul, .legal-doc ol { margin: 0 0 .8rem; padding-left: 1.2rem; }
