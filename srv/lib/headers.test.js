@@ -11,7 +11,7 @@ function headersFor(urlPath) {
     const src = rule.source;
     let re;
     if (src === '/(.*)') re = /^\/(.*)$/;
-    else if (src === '/((?!tg(?:/|$)).*)') re = /^\/((?!tg(?:\/|$)).*)$/;
+    else if (src === '/((?!tg/).*)') re = /^\/((?!tg\/).*)$/;
     else if (src === '/tg') re = /^\/tg$/;
     else if (src === '/tg/(.*)') re = /^\/tg\/(.*)$/;
     else if (src === '/app') re = /^\/app$/;
@@ -30,14 +30,14 @@ test('регион функций — Франкфурт', () => {
 test('заголовки /app и /tg', () => {
   const app = headersFor('/app/');
   const tg = headersFor('/tg/');
-  const tgRoot = headersFor('/tg');
+  const tgIndex = headersFor('/tg/index.html');
   assert.equal(app['X-Frame-Options'], 'DENY');
   assert.match(app['Content-Security-Policy'], /script-src 'self'/);
   assert.doesNotMatch(app['Content-Security-Policy'], /script-src[^;]*unsafe-inline/);
   assert.match(app['Content-Security-Policy'], /frame-ancestors 'none'/);
   assert.match(app['Content-Security-Policy'], /qozyihhlocvgpkchyqsp\.supabase\.co/);
   assert.equal(tg['X-Frame-Options'], undefined);
-  assert.equal(tgRoot['X-Frame-Options'], undefined);
+  assert.equal(tgIndex['X-Frame-Options'], undefined);
   assert.match(tg['Content-Security-Policy'], /frame-ancestors https:\/\/web\.telegram\.org https:\/\/\*\.telegram\.org/);
   assert.match(tg['Content-Security-Policy'], /script-src 'self' https:\/\/telegram\.org/);
   assert.doesNotMatch(tg['Content-Security-Policy'], /script-src[^;]*unsafe-inline/);
