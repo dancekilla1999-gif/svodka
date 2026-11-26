@@ -5,7 +5,9 @@
 (function () {
   "use strict";
   var me = document.currentScript;
-  if (!me) return;
+  if (!me || window.SV_TG) return;
+  var inv = location.hash.match(/[?&]invite=([A-Za-z0-9_-]+)/);
+  if (inv) { try { sessionStorage.setItem("sv_invite", inv[1]); } catch (e) {} }
   var C = {
     product: me.getAttribute("data-product"),
     store: me.getAttribute("data-store"),
@@ -34,6 +36,7 @@
   function sget(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function sset(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
   function token() {
+    if (window.SV && SV.session && SV.session.access) return SV.session.access;
     var v = sget(C.store); if (!v) return null;
     if (!C.field) return v;
     try { var o = JSON.parse(v); return o && o[C.field]; } catch (e) { return null; }

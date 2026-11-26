@@ -32,12 +32,22 @@ function publicUrl(req) {
   if (host && !unstableVercelHost(host)) return configuredBase(host);
   return 'https://svodka-egor12.vercel.app';
 }
-function hookSecret() { return crypto.createHash('sha256').update('tg:' + (process.env.CRON_SECRET || '')).digest('hex').slice(0, 48); }
-function send(res, code, obj) { res.statusCode = code; res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.setHeader('Cache-Control', 'no-store'); res.end(JSON.stringify(obj)); }
+function hookSecret() {
+  const explicit = String(process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
+  if (explicit) return explicit;
+  return crypto.createHash('sha256').update('tg:' + (process.env.CRON_SECRET || '')).digest('hex').slice(0, 48);
+}
+function reportOpenLink(base, id) {
+  const safe = String(id || '');
+  const bot = String(process.env.TG_BOT_USERNAME || '').replace(/^@/, '').trim();
+  if (bot && /^[A-Za-z0-9_-]{1,200}$/.test(safe)) return `https://t.me/${bot}/app?startapp=r_${safe}`;
+  return base && safe ? `${base}/app/r/${encodeURIComponent(safe)}` : null;
+}
+function send(res, code, obj) { res.statusCode = code; res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.setHeader('Cache-Control', 'no-store'); res.end(JSON.stringify(obj)); return res; }
 async function readBody(req) {
   if (req.body && typeof req.body === 'object') return req.body;
   if (typeof req.body === 'string') { try { return JSON.parse(req.body); } catch (e) { return {}; } }
   const chunks = []; for await (const c of req) chunks.push(c);
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch (e) { return {}; }
 }
-module.exports = { moscowDay, publicUrl, unstableVercelHost, hookSecret, send, readBody };
+module.exports = { moscowDay, publicUrl, unstableVercelHost, requestHost, hookSecret, reportOpenLink, send, readBody };

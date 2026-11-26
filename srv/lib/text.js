@@ -171,11 +171,13 @@ function discountRegistryText(o, link) {
   return messages.map((message, i) => `${header}\nЧасть ${i + 1} из ${messages.length}\n\n${message}${footer}`);
 }
 
-async function tgSend(chatId, text) {
+async function tgSend(chatId, text, extra) {
   const tok = process.env.TG_BOT_TOKEN;
   if (!tok || !chatId) return false;
+  const body = { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true };
+  if (extra && extra.reply_markup) body.reply_markup = extra.reply_markup;
   const r = await fetch(`https://api.telegram.org/bot${tok}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }), signal: AbortSignal.timeout(15000) });
+    body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
   return r.ok;
 }
 module.exports = { reportText, writeOffLines, discountRegistryText, tgSend, money, discountTypes, percent, pct1, plural };

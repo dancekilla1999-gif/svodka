@@ -1,1 +1,11 @@
-{ "private": true, "name": "svodka", "engines": { "node": "24.x" }, "scripts": { "test": "node srv/lib/digest.test.js && node srv/lib/founders.test.js && node srv/lib/common.test.js && node srv/lib/legal.test.js" } }
+{
+  "private": true,
+  "name": "svodka",
+  "engines": { "node": "24.x" },
+  "scripts": {
+    "test": "node --test srv/lib/digest.test.js srv/lib/founders.test.js srv/lib/common.test.js srv/lib/legal.test.js srv/lib/telegram.test.js srv/lib/headers.test.js srv/lib/secrets.test.js srv/lib/roles.test.js srv/lib/tg-ui.test.js srv/lib/tgauth.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
+  }
+}

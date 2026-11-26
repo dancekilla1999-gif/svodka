@@ -1,6 +1,7 @@
 // Команда агентов «Сводки». Каждый агент — чистая функция: данные → вывод {agent, pkey, level, title, data, items, text}.
 // Цифры всегда считает код. ИИ (YandexGPT) только пишет пояснения и советы поверх готовых цифр — см. director() и answer().
 const ai = require('./ai');
+const { rosterFrom, maskStaff, maskValue } = require('./roles');
 
 const AGENTS = {
   shift: { name: 'Смена', role: 'Разбирает каждую смену: выручка, себестоимость, прибыль, подозрительные удаления и скидки' },
@@ -307,7 +308,9 @@ async function director(period, results, opts = {}) {
   const fin = results.find((r) => r && r.agent === 'finance');
   const facts = { период: period.label, финансы: fin ? fin.data.pnl && { выручка: fin.data.pnl.revenue, прибыль: fin.data.pnl.profit, фудкост: fin.data.pnl.food_cost, расходы: fin.data.pnl.expenses && fin.data.pnl.expenses.total, фот_доля: fin.data.pnl.labor_share, закупки: fin.data.pnl.purchases, средний_чек: fin.data.pnl.avg_check } : null,
     прошлая_неделя: fin ? fin.data.prev : null, месяц: fin ? fin.data.month : null, выводы_агентов: items.slice(0, 18).map((i) => `[${AGENTS[i.agent] ? AGENTS[i.agent].name : i.agent}/${i.level}] ${i.text}`) };
-  let text = opts.noAi ? null : await ai.write(DIRECTOR_SYS, facts, { maxTokens: 900 });
+  const roster = rosterFrom({ insights: results.filter(Boolean) });
+  let text = opts.noAi ? null : await ai.write(DIRECTOR_SYS, maskValue(facts, roster), { maxTokens: 900 });
+  if (text) text = maskStaff(text, roster);
   const byAi = !!text;
   if (!text) {
     const top = items.filter((i) => i.level !== 'ok').slice(0, 5);
@@ -318,15 +321,18 @@ async function director(period, results, opts = {}) {
 }
 
 // Короткий совет управляющего к ежедневному отчёту
-async function dailyTip(shiftRes, purchRes) {
+async function dailyTip(shiftRes, purchRes, roster) {
+  const people = roster || [];
   const facts = { смена: shiftRes && { заголовок: shiftRes.title, метрики: shiftRes.data.metrics, отклонения: shiftRes.items.map((i) => i.text) }, закупки: purchRes && { заголовок: purchRes.title, изменения: purchRes.items.map((i) => i.text).slice(0, 6) } };
-  return ai.write('Ты — управляющий рестораном. По итогам вчерашней смены дай собственнику один практичный совет на сегодня (1–2 предложения, до 300 знаков), опираясь на самое важное отклонение. Если отклонений нет — коротко похвали команду и подскажи, на что обратить внимание.', facts, { maxTokens: 250, temperature: 0.4 });
+  const text = await ai.write('Ты — управляющий рестораном. По итогам вчерашней смены дай собственнику один практичный совет на сегодня (1–2 предложения, до 300 знаков), опираясь на самое важное отклонение. Если отклонений нет — коротко похвали команду и подскажи, на что обратить внимание.', maskValue(facts, people), { maxTokens: 250, temperature: 0.4 });
+  return text ? maskStaff(text, people) : text;
 }
 
 // ------------------------------------------------------------------ вопросы собственника
 const ASK_SYS = 'Ты — ИИ-управляющий в сервисе «Сводка» (данные из iiko одного заведения). Отвечай собственнику по-русски, на «вы», коротко и по делу: сначала прямой ответ с цифрами из данных, потом 1–3 конкретных совета. ' +
   'Используй только переданные данные; если нужных данных нет — честно скажи, каких именно (например, «не внесены расходы на аренду» или «iiko не отдал себестоимость»), и как их добавить. Не выдумывай цифры. До 1200 знаков, без markdown-таблиц.';
 function compactCtx(ctx) {
+  const roster = rosterFrom(ctx);
   const days = (ctx.reports || []).map((r) => {
     const t = (r.data && r.data.totals) || {}, pr = r.data && r.data.profit;
     return { day: r.day, выручка: r2(t.revenue), чеков: t.orders, средний_чек: r2(t.avg_check), себестоимость: t.cost, скидки: r2(t.discount), удаления: r2(t.deleted_sum), прибыль: pr ? pr.profit : null,
@@ -338,17 +344,19 @@ function compactCtx(ctx) {
   const fin = (ctx.insights || []).find((i) => i.agent === 'finance');
   const priceUp = {};
   (ctx.prices || []).forEach((p) => { priceUp[p.name] = priceUp[p.name] || []; priceUp[p.name].push(`${p.day}: ${r2(p.price)} ₽${p.unit ? '/' + p.unit : ''}${p.supplier ? ' (' + p.supplier + ')' : ''}`); });
-  return { режим: ctx.mode === 'demo' ? 'демо-данные' : 'iiko', дни: days, агенты: ins, неделя_PnL: fin && fin.data && fin.data.pnl, расходы_владельца: (ctx.expenses || []).map((e) => `${e.name} (${CAT[e.category] || e.category}): ${e.amount}${e.kind === 'percent' ? '% от выручки' : e.kind === 'month' ? ' ₽/мес' : e.kind === 'week' ? ' ₽/нед' : ' ₽ разово ' + (e.day || '')}`),
+  const body = { режим: ctx.mode === 'demo' ? 'демо-данные' : 'iiko', дни: days, агенты: ins, неделя_PnL: fin && fin.data && fin.data.pnl, расходы_владельца: (ctx.expenses || []).map((e) => `${e.name} (${CAT[e.category] || e.category}): ${e.amount}${e.kind === 'percent' ? '% от выручки' : e.kind === 'month' ? ' ₽/мес' : e.kind === 'week' ? ' ₽/нед' : ' ₽ разово ' + (e.day || '')}`),
     цены_закупок: Object.keys(priceUp).slice(0, 60).map((k) => `${k}: ${priceUp[k].slice(-4).join('; ')}`), цели: prefsOf(ctx.prefs) };
+  return maskValue(body, roster);
 }
 async function answer(question, ctx) {
   const q = String(question || '').trim().slice(0, 1500);
   if (!q) throw new Error('Задайте вопрос');
+  const roster = rosterFrom(ctx);
   if (ai.enabled()) {
     const msgs = [{ role: 'system', content: ASK_SYS + '\n\nДанные заведения (JSON):\n' + JSON.stringify(compactCtx(ctx)).slice(0, 26000) }];
-    (ctx.chat || []).slice(-6).forEach((m) => msgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.text).slice(0, 1500) }));
-    msgs.push({ role: 'user', content: q });
-    try { return { text: ai.clean(await ai.chat(msgs, { maxTokens: 900 })), by_ai: true }; } catch (e) { console.error('answer', e.message); }
+    (ctx.chat || []).slice(-6).forEach((m) => msgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: maskStaff(String(m.text).slice(0, 1500), roster) }));
+    msgs.push({ role: 'user', content: maskStaff(q, roster) });
+    try { return { text: maskStaff(ai.clean(await ai.chat(msgs, { maxTokens: 900 })), roster), by_ai: true }; } catch (e) { console.error('answer', e.message); }
   }
   return { text: fallbackAnswer(q, ctx), by_ai: false };
 }

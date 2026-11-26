@@ -4,6 +4,7 @@
    Подключение: <script src="guide.js" data-product="pd|zh|sv" data-store="ключ localStorage" data-field="поле с токеном"></script> */
 (function () {
   "use strict";
+  if (window.SV_TG) return;
   var me = document.currentScript;
   if (!me) return;
   var P = me.getAttribute("data-product"), STORE = me.getAttribute("data-store"), FIELD = me.getAttribute("data-field") || "";
@@ -13,7 +14,10 @@
 
   function sget(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function sset(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
-  function token() { var v = sget(STORE); if (!v) return null; if (!FIELD) return v; try { var o = JSON.parse(v); return o && o[FIELD]; } catch (e) { return null; } }
+  function token() {
+    if (window.SV && SV.session && SV.session.access) return SV.session.access;
+    var v = sget(STORE); if (!v) return null; if (!FIELD) return v; try { var o = JSON.parse(v); return o && o[FIELD]; } catch (e) { return null; }
+  }
   function rpc(fn, args) {
     return fetch(URL + "/rest/v1/rpc/" + fn, { method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" }, body: JSON.stringify(args || {}) })
       .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });

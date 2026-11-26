@@ -117,7 +117,38 @@ function testOperatorGate() {
   assert.match(fail.stderr, /плейсхолдеры/);
 }
 
+function testSelfEmployed() {
+  const { operatorGaps } = require('./operator');
+  const live = operatorGaps();
+  assert.deepEqual(live, ['ИНН', 'почта']);
+  const filled = operatorGaps({
+    operator: { personStatus: 'самозанятый', personName: 'Егор Бондарев', inn: '770000000000', email: 'egor@example.test', name: '', ogrn: '' }
+  });
+  assert.deepEqual(filled, []);
+  const noMail = operatorGaps({
+    operator: { personStatus: 'самозанятый', personName: 'Егор Бондарев', inn: '770000000000', email: '[УКАЖИТЕ EMAIL]', ogrn: '[УКАЖИТЕ ОГРН]', name: '[УКАЖИТЕ ПОЛНОЕ НАИМЕНОВАНИЕ]' }
+  });
+  assert.deepEqual(noMail, ['почта']);
+  const company = operatorGaps({
+    operator: { personStatus: 'юрлицо', name: 'ООО Ромашка', inn: '7700000000', ogrn: '', address: 'Москва', email: 'a@b.c' }
+  });
+  assert.deepEqual(company, ['ОГРН']);
+  const app = read('public/app/app.js');
+  assert.match(app, /personStatus/);
+  assert.match(app, /самозанятый/);
+  assert.match(app, /personName/);
+  assert.match(app, /\["почта", C\.operator\.email\]/);
+  assert.match(read('public/legal/render.js'), /На эту почту отправляют отзыв согласия/);
+  assert.match(read('build.sh'), /operatorGaps\(\)/);
+  assert.match(read('vercel.json'), /public\/legal\/operator\.js/);
+  assert.equal(require('./operator').loadOperator().operator.personStatus, 'самозанятый');
+  const session = read('srv/api/session.js');
+  assert.match(session, /operatorGaps\(\)/);
+  assert.doesNotMatch(session, /REQUIRE_OPERATOR/);
+}
+
 testConfig();
 testLinks();
 testOperatorGate();
+testSelfEmployed();
 console.log('ok: legal pages');
