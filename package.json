@@ -1,1 +1,1 @@
-{ "private": true, "name": "svodka", "engines": { "node": "24.x" }, "scripts": { "test": "node srv/lib/digest.test.js && node srv/lib/founders.test.js && node srv/lib/common.test.js" } }
+{ "private": true, "name": "svodka", "engines": { "node": "24.x" }, "scripts": { "test": "node srv/lib/digest.test.js && node srv/lib/founders.test.js && node srv/lib/common.test.js && node srv/lib/legal.test.js" } }

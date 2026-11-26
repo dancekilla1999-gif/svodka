@@ -169,9 +169,8 @@ document.querySelectorAll('form[data-lead]').forEach((f) => {
 (() => {
   let seen = null; try { seen = localStorage.getItem('trio_ck'); } catch (e) {}
   if (seen) return;
-  const host = location.hostname.indexOf('trio-resto') === 0 ? '' : 'https://trio-resto-egor12.vercel.app';
   const box = document.createElement('div'); box.className = 'ck'; box.setAttribute('role', 'status');
-  box.innerHTML = `<span>Мы не используем рекламные cookies — только данные браузера, нужные для работы сайта. <a href="${host}/cookies">Подробнее</a></span>`;
+  box.innerHTML = `<span>Мы не используем рекламные cookies — только данные браузера, нужные для работы сайта. <a href="/legal/cookies">Политика cookies</a></span>`;
   const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Понятно';
   b.addEventListener('click', () => { try { localStorage.setItem('trio_ck', '1'); } catch (e) {} box.remove(); });
   box.appendChild(b); setTimeout(() => document.body.appendChild(box), 1200);

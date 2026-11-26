@@ -15,7 +15,6 @@
     url: "https://qozyihhlocvgpkchyqsp.supabase.co",
     key: "sb_publishable_Us9CgaJDpwIpAHSQYN7QMg_ADy35Uov",
     trio: "https://trio-resto-egor12.vercel.app/trio",
-    site: "https://trio-resto-egor12.vercel.app",
     pay: "https://trio-resto-egor12.vercel.app/api/pay"
   };
   var PICK = "trio_plan_" + C.product;
@@ -102,9 +101,9 @@
     btn.parentNode.insertBefore(box, btn.previousElementSibling && btn.previousElementSibling.getAttribute("role") === "alert" ? btn.previousElementSibling : btn);
     var agree = el("input", { type: "checkbox", id: "tb_agree" });
     var lab = el("label", { class: "tb-agree", for: "tb_agree" }, agree, el("span", null, "Принимаю ",
-      el("a", { href: C.site + "/offer", target: "_blank", rel: "noopener", text: "оферту" }), " и даю ",
-      el("a", { href: C.site + "/consent", target: "_blank", rel: "noopener", text: "согласие на обработку персональных данных" }), " по ",
-      el("a", { href: C.site + "/privacy", target: "_blank", rel: "noopener", text: "политике" })));
+      el("a", { href: "/legal/offer", target: "_blank", rel: "noopener", text: "оферту" }), " и даю ",
+      el("a", { href: "/legal/consent", target: "_blank", rel: "noopener", text: "согласие на обработку персональных данных" }), " по ",
+      el("a", { href: "/legal/privacy", target: "_blank", rel: "noopener", text: "политике" })));
     btn.parentNode.insertBefore(lab, btn);
     btn.parentNode.insertBefore(el("p", { class: "tb-note", text: "7 дней бесплатно, карта не нужна. Тариф можно поменять в любой момент." }), btn.nextSibling);
     if (btn.textContent.indexOf("7 дн") < 0) btn.textContent = "Создать аккаунт — 7 дней бесплатно";
@@ -184,7 +183,7 @@
           all.addEventListener("click", function () { startPay("trio", all, out); });
           payBox.appendChild(one); payBox.appendChild(all); payBox.appendChild(out);
           payBox.appendChild(el("p", { class: "tb-note" }, "Оплата через ЮKassa: карта, СБП, ЮMoney, SberPay. Автосписаний нет. ",
-            el("a", { href: C.site + "/offer", target: "_blank", rel: "noopener", text: "Оферта" })));
+            el("a", { href: "/legal/offer", target: "_blank", rel: "noopener", text: "Оферта" })));
         } else {
           var phone = el("input", { type: "tel", inputmode: "tel", autocomplete: "tel", placeholder: "Телефон для связи (необязательно)", maxlength: "40" });
           var ok = el("p", { class: "tb-note" });
@@ -222,7 +221,7 @@
     if (sget("trio_ck")) return;
     var b = el("button", { type: "button", text: "Понятно" });
     var box = el("div", { class: "tb-ck", role: "status" }, el("span", null, "Мы не используем рекламные cookies — только данные браузера, нужные для входа. ",
-      el("a", { href: C.site + "/cookies", target: "_blank", rel: "noopener", text: "Подробнее" })), b);
+      el("a", { href: "/legal/cookies", target: "_blank", rel: "noopener", text: "Политика cookies" })), b);
     b.addEventListener("click", function () { sset("trio_ck", "1"); box.remove(); });
     document.body.appendChild(box);
   }

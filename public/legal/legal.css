@@ -1,0 +1,15 @@
+/* Документы «Сводки»: поверх кабинета, чтобы длинный текст читался. */
+.legal-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; }
+.legal-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.legal-nav a {
+  min-height: 44px; display: inline-flex; align-items: center; padding: 8px 12px;
+  border: 1.5px solid var(--line); border-radius: 6px; text-decoration: none; color: var(--ink); background: var(--surface);
+}
+.legal-nav a[aria-current="page"] { border-color: var(--ink); font-weight: 700; }
+.legal-doc h2 { margin: 1.35rem 0 .45rem; }
+.legal-doc p, .legal-doc li { margin: 0 0 .7rem; }
+.legal-doc ul, .legal-doc ol { margin: 0 0 .8rem; padding-left: 1.2rem; }
+.legal-doc table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.legal-doc th, .legal-doc td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+.ph { background: var(--warn-bg); color: var(--ink); padding: 0 .25rem; border-radius: 4px; font-weight: 700; }
+.draft-note { border: 1px solid var(--warn-line); background: var(--warn-bg); border-radius: 10px; padding: 12px 14px; }
