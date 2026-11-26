@@ -78,6 +78,7 @@
         mode === "register" ? h("label", null, "Имя", name) : null,
         h("label", null, "Почта", email),
         h("label", null, "Пароль" + (mode === "register" ? " (от 8 символов)" : ""), pass), err, btn,
+        (function () { try { return sessionStorage.getItem("sv_return"); } catch (e) { return null; } })() ? h("p", { class: "small center muted", text: "После входа откроется полный отчёт по смене." }) : null,
         h("p", { class: "small center" }, mode === "login" ? h("a", { href: "#/register", text: "Нет аккаунта? Регистрация" }) : h("a", { href: "#/login", text: "Уже есть аккаунт? Войти" })))));
   }
   SV.route("/login", function () { authPage("login"); });
@@ -153,8 +154,18 @@
   // ------------------------------------------------------------ отчёт
   SV.route("/r/:id", function (p) {
     if (!need()) return;
-    SV.mount([topbar(), SV.loading()]);
-    call("sv_report_get", { p_id: Number(p.id) }).then(function (r) { SV.mount([topbar(), report(r)]); }, function (e) { SV.mount([topbar(), page(h("div", { class: "card" }, h("p", { text: e.message }), h("a", { class: "btn", href: "#/home", text: "К отчётам" })))]); });
+    var id = Number(p.id);
+    function load() {
+      SV.mount([topbar(), SV.loading("Открываю отчёт…")]);
+      call("sv_report_get", { p_id: id }).then(function (r) {
+        try { SV.mount([topbar(), report(r)]); }
+        catch (e) { SV.mount([topbar(), SV.problem("Отчёт не открылся", e.message || "Не удалось показать отчёт", load)]); }
+      }, function (e) {
+        SV.mount([topbar(), SV.problem("Отчёт не открылся", e.message, load)]);
+      });
+    }
+    if (!id) { SV.mount([topbar(), SV.problem("Отчёт не открылся", "В ссылке нет номера отчёта.", function () { SV.go("/home"); })]); return; }
+    load();
   });
   function table(head, rows, numCols) {
     var compact = head.length <= 4;

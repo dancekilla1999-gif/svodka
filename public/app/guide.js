@@ -5,6 +5,7 @@
 (function () {
   "use strict";
   var me = document.currentScript;
+  if (!me) return;
   var P = me.getAttribute("data-product"), STORE = me.getAttribute("data-store"), FIELD = me.getAttribute("data-field") || "";
   var URL = "https://qozyihhlocvgpkchyqsp.supabase.co", KEY = "sb_publishable_Us9CgaJDpwIpAHSQYN7QMg_ADy35Uov";
   var LINKS = { pd: "https://podacha-egor12.vercel.app/app/", zh: "https://zhurnalka.vercel.app/app/", sv: "https://svodka-egor12.vercel.app/app/" };
