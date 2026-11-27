@@ -83,7 +83,8 @@ async function buildReport(iiko, day, sel, opts = {}) {
   const dflt = f.del ? baseFilters(f, from, to, deptIds, deptNames, false) : null;
   if (dflt) dflt[f.del] = { filterType: 'ExcludeValues', values: ['NOT_DELETED'] };
   const salesPay = f.payCombo || f.pay;
-  const discountGroups = [f.discType, salesPay, f.payGroup, f.fiscal, f.waiter];
+  // этаж (RestaurantSection) входит и в общий запрос скидок — по нему считаем итоги каждого этажа
+  const discountGroups = [...new Set([f.discType, salesPay, f.payGroup, f.fiscal, f.waiter, f.floor, f.floor && f.dept].filter(Boolean))];
   const discountDetailGroups = [...new Set([...discountGroups, f.receipt, f.orderId, f.closed, f.table, f.cardOwner, f.authorizedBy, f.floor, f.dept].filter(Boolean))];
   const hasReceiptDetail = !!(f.receipt || f.orderId);
   // Комбинация оплат сохраняет выручку чека одной строкой. Смешанные оплаты
@@ -98,6 +99,8 @@ async function buildReport(iiko, day, sel, opts = {}) {
     disc: f.gross && (f.discType || salesPay || f.fiscal)
       ? run(hasReceiptDetail ? discountDetailGroups : discountGroups, [f.rev, f.gross])
       : null,
+    // себестоимость и запасные цифры этажа: зал + подразделение, как у строк продаж
+    floors: f.floor ? run([...new Set([f.floor, f.dept].filter(Boolean))], aggMain) : null,
     sales: salesPay ? run([...new Set([f.floor, f.dept, f.entity, salesPay, f.discType])], [f.rev, f.gross]) : null,
     prev: run([f.dept || f.waiter], [f.rev, f.orders, f.guests], baseFilters(f, pd, isoAdd(pd, 1), deptIds, deptNames, true))
   };
@@ -174,8 +177,21 @@ async function buildReport(iiko, day, sel, opts = {}) {
       const saleReceipts = new Set();
       const saleGuestsByReceipt = new Map();
       let saleOrdersAgg = 0, saleGuestsAgg = 0;
-      let eligibleGross = 0, eligibleNet = 0, promoGross = 0, promoNet = 0;
+      let eligibleGross = 0, eligibleNet = 0, promoGross = 0, promoNet = 0, discount = 0, surcharge = 0;
+      const surchargeByType = new Map();
       const unprinted = { sum: 0, count: 0, receipts: new Set() };
+      // итоги по этажам считаем по тем же строкам и правилам, что и общий итог: этажи в сумме дают общий итог
+      const floorAcc = new Map();
+      const floorOfRow = (row) => (f.floor ? floorOf(row[f.floor], row[f.dept]) : 'unknown');
+      const floorEntry = (row) => {
+        const key = floorOfRow(row);
+        let e = floorAcc.get(key);
+        if (!e) { e = { gross: 0, net: 0, promo: 0, discount: 0, surcharge: 0, orders: 0, guests: 0, ordersAgg: 0, guestsAgg: 0, byType: new Map(), surchargeByType: new Map() }; floorAcc.set(key, e); }
+        return e;
+      };
+      // Чек целиком относится к одному этажу — к залу, где по нему больше всего выручки (при равенстве — к меньшему номеру).
+      // Тогда чеки и гости этажей в сумме всегда равны итогу, даже если блюда одного чека пробиты в разных залах.
+      const receiptFloors = new Map();
       const receiptKey = (row) => String(row[f.receipt] || row[f.orderId] || '') || null;
       const bumpCount = (entry, row, receipts) => {
         const key = receiptKey(row);
@@ -183,14 +199,24 @@ async function buildReport(iiko, day, sel, opts = {}) {
           if (!receipts.has(key)) { receipts.add(key); entry.count += 1; }
         } else entry.count += 1;
       };
-      const countSale = (row) => {
+      const countSale = (row, amount) => {
         const key = receiptKey(row);
-        if (key) saleReceipts.add(key);
-        if (f.orders) saleOrdersAgg += num(row[f.orders]);
+        const floor = floorOfRow(row);
+        const fl = floorEntry(row);
+        if (key) {
+          saleReceipts.add(key);
+          const rf = receiptFloors.get(key) || { byFloor: new Map(), guests: null };
+          rf.byFloor.set(floor, (rf.byFloor.get(floor) || 0) + (Number(amount) || 0));
+          receiptFloors.set(key, rf);
+        }
+        if (f.orders) { saleOrdersAgg += num(row[f.orders]); fl.ordersAgg += num(row[f.orders]); }
         if (f.guests) {
           const g = num(row[f.guests]);
-          if (key) { if (!saleGuestsByReceipt.has(key)) saleGuestsByReceipt.set(key, g); }
-          else saleGuestsAgg += g;
+          if (key) {
+            if (!saleGuestsByReceipt.has(key)) saleGuestsByReceipt.set(key, g);
+            const rf = receiptFloors.get(key);
+            if (rf.guests == null) rf.guests = g;
+          } else { saleGuestsAgg += g; fl.guestsAgg += g; }
         }
       };
       for (const row of rows) {
@@ -202,7 +228,8 @@ async function buildReport(iiko, day, sel, opts = {}) {
         if (group === 'promo') {
           promoGross += (net > 0 ? net : gross);
           promoNet += net;
-          countSale(row);
+          countSale(row, net > 0 ? net : gross);
+          floorEntry(row).promo += (net > 0 ? net : gross);
           const payName = String(payment || type || 'ПромоБезОплаты').trim() || 'ПромоБезОплаты';
           const table = String(row[f.table] ?? '').trim();
           const label = table ? `Стол ${table} · ${payName}` : payName;
@@ -225,18 +252,32 @@ async function buildReport(iiko, day, sel, opts = {}) {
           if (wo.sum > 0.009) nonFiscal.set(key, entry);
           continue;
         }
-        countSale(row);
+        countSale(row, net);
         if (isUnprintedCheque(row[f.fiscal])) {
           unprinted.sum += net;
           bumpCount(unprinted, row, unprinted.receipts);
         }
         eligibleGross += gross;
         eligibleNet += net;
-        const w = byWaiter.get(waiter) || { gross: 0, net: 0 };
+        const fl = floorEntry(row);
+        fl.gross += gross;
+        fl.net += net;
+        const w = byWaiter.get(waiter) || { gross: 0, net: 0, discount: 0, surcharge: 0 };
         w.gross += gross;
         w.net += net;
         byWaiter.set(waiter, w);
-        if (gross !== net) {
+        // Скидка — только строки, где после скидки меньше, чем до (gross > net). Строки с net > gross — надбавки:
+        // считаются отдельно и не уменьшают скидки (иначе 15 196 ₽ скидок превращались в «102 ₽»).
+        if (net > gross) {
+          const up = net - gross;
+          const surchargeType = type || 'Тип не указан';
+          surcharge += up; fl.surcharge += up; w.surcharge += up;
+          const st = surchargeByType.get(surchargeType) || { type: surchargeType, sum: 0, count: 0, receipts: new Set() };
+          st.sum += up; bumpCount(st, row, st.receipts); surchargeByType.set(surchargeType, st);
+          const fst = fl.surchargeByType.get(surchargeType) || { type: surchargeType, sum: 0, count: 0, receipts: new Set() };
+          fst.sum += up; bumpCount(fst, row, fst.receipts); fl.surchargeByType.set(surchargeType, fst);
+        } else if (gross > net) {
+          discount += gross - net; fl.discount += gross - net; w.discount += gross - net;
           const discountType = type || 'Тип не указан — проверить';
           const key = JSON.stringify([discountType, waiter]);
           const entry = discounts.get(key) || { type: discountType, waiter, sum: 0 };
@@ -246,6 +287,10 @@ async function buildReport(iiko, day, sel, opts = {}) {
           byType.sum += gross - net;
           bumpCount(byType, row, byType.receipts);
           discountByType.set(discountType, byType);
+          const flType = fl.byType.get(discountType) || { type: discountType, sum: 0, count: 0, receipts: new Set() };
+          flType.sum += gross - net;
+          bumpCount(flType, row, flType.receipts);
+          fl.byType.set(discountType, flType);
           if (detailed) {
             const detail = {
               type: discountType, waiter,
@@ -265,7 +310,18 @@ async function buildReport(iiko, day, sel, opts = {}) {
         }
       }
       const clean = (x) => { const { receipts, ...rest } = x; return { ...rest, sum: r2(x.sum), count: x.count || 0 }; };
-      out.totals.discount = r2(Math.max(0, eligibleGross - eligibleNet));
+      // распределяем каждый чек на один этаж
+      for (const [, rf] of receiptFloors) {
+        let best = null, bestSum = -Infinity;
+        for (const [floor, amount] of [...rf.byFloor.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ru', { numeric: true }))) {
+          if (amount > bestSum + 0.009) { best = floor; bestSum = amount; }
+        }
+        const e = floorAcc.get(best);
+        e.orders += 1;
+        e.guests += rf.guests || 0;
+      }
+      out.totals.discount = r2(discount);
+      out.totals.surcharge = r2(surcharge);
       out.totals.discount_base = r2(eligibleGross);
       // Выручка = фискальные чеки (после скидки) + промо без оплаты. Нефискальные «за счёт заведения» не входят.
       const fiscalRevenue = r2(eligibleNet + promoGross);
@@ -310,6 +366,21 @@ async function buildReport(iiko, day, sel, opts = {}) {
       out.promo_items = [...promoItems.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum);
       out.promo_total = r2(out.promo_items.reduce((s, x) => s + x.sum, 0));
       if (unprinted.count || unprinted.sum) out.unprinted = { sum: r2(unprinted.sum), count: unprinted.count };
+      if (f.floor) {
+        out.by_floor = [...floorAcc.entries()].map(([floor, e]) => {
+          const revenue = r2(e.net + e.promo);
+          const orders = saleReceipts.size ? e.orders : e.ordersAgg;
+          const guests = saleGuestsByReceipt.size ? e.guests : e.guestsAgg;
+          return {
+            floor, revenue, orders, guests,
+            avg_check: orders ? r2(revenue / orders) : 0, avg_guest: guests ? r2(revenue / guests) : 0,
+            discount: r2(e.discount), surcharge: r2(e.surcharge), discount_base: r2(e.gross), promo: r2(e.promo),
+            discount_by_type: [...e.byType.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum),
+            surcharge_by_type: [...e.surchargeByType.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum)
+          };
+        });
+      }
+      out.surcharge_by_type = [...surchargeByType.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum);
       out.discount_by_type = [...discountByType.values()].map(clean).filter((x) => x.sum > 0).sort((a, b) => b.sum - a.sum);
       out.discounts = [...discounts.values()].filter((x) => x.sum > 0)
         .sort((a, b) => b.sum - a.sum).slice(0, 15).map((x) => ({ ...x, sum: r2(x.sum) }));
@@ -329,7 +400,8 @@ async function buildReport(iiko, day, sel, opts = {}) {
       out.waiters.forEach((w) => {
         const x = byWaiter.get(w.name);
         w.discount_base = x ? r2(x.gross) : 0;
-        w.discount = x ? r2(Math.max(0, x.gross - x.net)) : 0;
+        w.discount = x ? r2(x.discount) : 0;
+        w.surcharge = x ? r2(x.surcharge) : 0;
         w.discount_share = x && x.gross > 0 ? r2(w.discount / x.gross) : 0;
       });
     } else {
@@ -381,6 +453,9 @@ async function buildReport(iiko, day, sel, opts = {}) {
     }
   }
 
+  // по этажам: себестоимость и запасной вариант из отдельного запроса iiko по RestaurantSection
+  if (P.floors) out.by_floor = floorTotals(await P.floors, f, out.by_floor, out.totals);
+
   // тот же день недели неделю назад
   const prevRows = await P.prev;
   const pv = prevRows.reduce((s, row) => ({ revenue: s.revenue + num(row[f.rev]), orders: s.orders + num(row[f.orders]), guests: s.guests + num(row[f.guests]) }), { revenue: 0, orders: 0, guests: 0 });
@@ -388,6 +463,71 @@ async function buildReport(iiko, day, sel, opts = {}) {
 
   out.partial = !!opts.partial;
   out.flags = flags(out);
+  return out;
+}
+
+// Целые числа, которые в сумме дают ровно total, пропорционально values (метод наибольшего остатка).
+function fitTo(values, total) {
+  const sumV = values.reduce((s, v) => s + v, 0);
+  if (!sumV || !(total >= 0)) return values.slice();
+  const raw = values.map((v) => (v * total) / sumV);
+  const out = raw.map(Math.floor);
+  let rest = Math.round(total - out.reduce((s, v) => s + v, 0));
+  raw.map((v, i) => [v - Math.floor(v), i]).sort((x, y) => y[0] - x[0] || x[1] - y[1]).forEach(([, i]) => { if (rest > 0) { out[i] += 1; rest -= 1; } });
+  return out;
+}
+// Доли в процентах с одним знаком, сумма ровно 100,0 (наибольший остаток).
+function shares(values) {
+  const tenths = fitTo(values.map((v) => Math.max(0, v)), 1000);
+  return tenths.map((x) => x / 1000);
+}
+function floorOrder(a, b) { return a === 'unknown' ? 1 : b === 'unknown' ? -1 : Number(a) - Number(b); }
+
+// Итоги по этажам: 1 и 2 этаж всегда (если в iiko есть залы с номером этажа), другие этажи и «Этаж не указан» — если там есть продажи.
+// Выручку, чеки, гостей и скидки берём из разбора чеков (fromSales), себестоимость — из запроса по залу + подразделению,
+// этаж определяется так же, как для строк продаж. Чеки и гости этажей в сумме всегда равны общему итогу.
+function floorTotals(rows, f, fromSales, totals) {
+  const iiko = new Map();
+  for (const row of rows || []) {
+    const floor = floorOf(row[f.floor], f.dept ? row[f.dept] : undefined);
+    const e = iiko.get(floor) || { revenue: 0, orders: 0, guests: 0, cost: 0 };
+    e.revenue += num(row[f.rev]); e.orders += num(row[f.orders]); e.guests += num(row[f.guests]); e.cost += f.cost ? num(row[f.cost]) : 0;
+    iiko.set(floor, e);
+  }
+  const base = new Map((fromSales || []).map((x) => [x.floor, { ...x }]));
+  if (!base.size) {
+    for (const [floor, e] of iiko) {
+      base.set(floor, { floor, revenue: r2(e.revenue), orders: null, guests: null, discount: null, surcharge: null, discount_base: null, promo: 0, discount_by_type: [], surcharge_by_type: [] });
+    }
+  }
+  const keys = new Set([...base.keys(), ...iiko.keys()]);
+  if (![...keys].some((k) => k !== 'unknown')) return undefined;
+  const floors = [...new Set(['1', '2', ...keys])].sort(floorOrder);
+  const out = [];
+  for (const floor of floors) {
+    const x = base.get(floor) || { floor, revenue: 0, orders: 0, guests: 0, discount: 0, surcharge: 0, discount_base: 0, promo: 0, discount_by_type: [], surcharge_by_type: [] };
+    const c = iiko.get(floor);
+    x.cost = f.cost ? r2(c ? c.cost : 0) : null;
+    if (floor !== '1' && floor !== '2' && !x.revenue && !x.orders && !x.cost && !(c && (c.orders || c.guests))) continue;
+    out.push(x);
+  }
+  // чеки: из разбора чеков; если номеров чеков нет — из iiko по залам. Гости: как в общем итоге (разбор чеков или iiko).
+  const T = totals || {};
+  const fill = (k, fromIiko, total) => {
+    const useIiko = fromIiko || out.every((x) => !x[k]);
+    const vals = out.map((x) => (useIiko ? (iiko.get(x.floor) || {})[k] || 0 : x[k] || 0));
+    const fitted = total != null && vals.reduce((s, v) => s + v, 0) !== total ? fitTo(vals, total) : vals;
+    out.forEach((x, i) => { x[k] = fitted[i]; });
+  };
+  fill('orders', out.some((x) => x.orders == null), T.orders);
+  fill('guests', !!T.guests_include_non_fiscal || out.some((x) => x.guests == null), T.guests);
+  const sh = shares(out.map((x) => x.revenue));
+  out.forEach((x, i) => {
+    x.avg_check = x.orders ? r2(x.revenue / x.orders) : 0;
+    x.avg_guest = x.guests ? r2(x.revenue / x.guests) : 0;
+    x.gross_profit = x.cost == null ? null : r2(x.revenue - x.cost);
+    x.share = sh[i];
+  });
   return out;
 }
 
@@ -426,4 +566,4 @@ function flags(o) {
   return out;
 }
 
-module.exports = { buildReport, flags, isoAdd, fields, CANDIDATES };
+module.exports = { buildReport, flags, floorTotals, fitTo, shares, isoAdd, fields, CANDIDATES };
