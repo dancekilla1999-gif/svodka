@@ -252,6 +252,17 @@
         table(["Позиция", "Кол-во", "Выручка"], o.dishes.map(function (x) { return [x.name, int(x.qty), money(x.sum)]; }), [1, 2])) : null,
       (o.deletions || []).length ? h("section", { class: "form" }, h("h2", { text: "Удаления" }),
         table(["Позиция", "Сотрудник", "Тип", "Кол-во", "Сумма"], o.deletions.slice(0, 30).map(function (x) { return [x.dish, x.waiter, DEL_TYPES[x.type] || x.type, int(x.qty), money(x.sum)]; }), [3, 4])) : null,
+      (o.by_floor || []).length ? h("section", { class: "form" }, h("h2", { text: "По этажам" }),
+        h("p", { class: "small muted", text: "Этажи в сумме дают общий итог. Скидки — только фискальные чеки." }),
+        table(["Этаж", "Выручка", "Чеков", "Гостей", "Средний чек", "На гостя", "Себестоимость", "Валовая прибыль", "Скидки"],
+          o.by_floor.map(function (x) {
+            var types = (x.discount_by_type || []).slice(0, 3).map(function (d) { return d.type + " " + money(d.sum); }).join("; ");
+            return [x.floor === "unknown" ? "Этаж не указан" : x.floor + " этаж", money(x.revenue), int(x.orders), int(x.guests), money(x.avg_check), money(x.avg_guest),
+              x.cost == null ? "—" : money(x.cost), x.gross_profit == null ? "—" : money(x.gross_profit),
+              x.discount == null ? "—" : money(x.discount) + (types ? " (" + types + ")" : "")];
+          }).concat([["ВСЕГО", money(t.revenue), int(t.orders), int(t.guests), money(t.avg_check), money(t.avg_guest),
+            t.cost == null ? "—" : money(t.cost), t.cost == null ? "—" : money(t.revenue - t.cost), t.discount == null ? "—" : money(t.discount)]]),
+          [1, 2, 3, 4, 5, 6, 7])) : null,
       o.revenue_breakdown ? h("section", { class: "form" }, h("h2", { text: "Выручка по этажам и юрлицам" }), revenueTable(o.revenue_breakdown)) : null,
       (function () {
         var types = o.discount_by_type && o.discount_by_type.length ? o.discount_by_type : (function () {
