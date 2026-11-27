@@ -1,6 +1,6 @@
 // Итоги смены по этажам: 1 и 2 этаж отдельно и в сумме равны общему итогу (жалоба 27.11: сводка не делила этажи).
 const assert = require('node:assert/strict');
-const { buildReport, floorTotals, fields } = require('./report');
+const { buildReport, floorTotals, fields, shares, fitTo } = require('./report');
 const { reportText } = require('./text');
 const { floorOf } = require('./sales-breakdown');
 
@@ -109,12 +109,18 @@ async function testFallbackFromIiko() {
 }
 
 function testFloorNames() {
-  assert.equal(floorOf('Зал 1 этаж'), '1');
-  assert.equal(floorOf('Зал 2 этаж'), '2');
-  assert.equal(floorOf('2-й этаж'), '2');
-  assert.equal(floorOf('Этаж 1'), '1');
-  assert.equal(floorOf('Веранда'), 'unknown');
+  const cases = {
+    'Зал 1 этаж': '1', 'ЗАЛ 2 ЭТАЖ': '2', '1-й этаж': '1', '1-ый этаж': '1', '2-ой этаж': '2', '2й этаж': '2', 'Этаж 2': '2', 'Этаж2': '2',
+    '2этаж': '2', 'VIP 2 этаж': '2', 'Банкет (2 этаж)': '2', 'Зал на 2 этаже': '2', 'Терраса 2 этажа': '2', 'Зал\u00a02\u00a0этаж': '2',
+    '2 эт': '2', '2 эт.': '2', 'Зал 2 эт.': '2', 'первый этаж': '1', 'Второй этаж': '2', 'на втором этаже': '2', 'Этаж-2': '2',
+    'Этаж №2': '2', 'Этаж № 1': '1', '2-м этаже': '2', 'Этаж: 2': '2', '3 этаж': '3',
+    'Зал 12': 'unknown', '12 этаж': 'unknown', 'Этаж 12': 'unknown', 'этаж 21': 'unknown', '-1 этаж': 'unknown', 'Цоколь -1 этаж': 'unknown',
+    '1–2 этаж': 'unknown', '1-2 этаж': 'unknown', 'Этаж 1-2': 'unknown', 'этаж -1': 'unknown', 'Зал 1/2 этаж': 'unknown', 'Зал 1': 'unknown',
+    'Веранда': 'unknown', 'Этажерка 2': 'unknown', '2 этап': 'unknown', '': 'unknown'
+  };
+  for (const [name, floor] of Object.entries(cases)) assert.equal(floorOf(name), floor, name);
   assert.equal(floorOf('', 'Смок Дог 2 этаж'), '2');
+  assert.equal(floorOf('Основной зал', 'Смок Дог 2 этаж'), '2');
 }
 
 // Старый отчёт 26.11 из базы (без by_floor): выручка по этажам из revenue_breakdown, реальные суммы
@@ -136,10 +142,153 @@ function testOldReport26() {
   assert.equal(413594 + 74844, 488438);
 }
 
+
+// 1) Надбавки не уменьшают скидки: LoonaLevel2 1000 + надбавка −900 → скидки 1000, надбавки 900 (было «Всего: 100 ₽»)
+async function testSurcharge() {
+  n = 700;
+  const atoms = [
+    sale(F1, 'Банковские карты', 4000, 1000, 'LoonaLevel2'),
+    sale(F1, 'Банковские карты', 3000, -900, 'Надбавка за обслуживание'),
+    sale(F2, 'Банковские карты', 1000)
+  ];
+  const o = await buildReport(fakeIiko(atoms), '2026-11-26', [{ id: '', name: 'Смок Дог Москва' }]);
+  assert.ok(!o.errors, String(o.errors));
+  assert.equal(o.totals.discount, 1000);
+  assert.equal(o.totals.surcharge, 900);
+  assert.deepEqual(o.discount_by_type.map((x) => [x.type, x.sum]), [['LoonaLevel2', 1000]]);
+  assert.deepEqual(o.surcharge_by_type.map((x) => [x.type, x.sum, x.count]), [['Надбавка за обслуживание', 900, 1]]);
+  assert.equal(o.totals.revenue, 3000 + 3900 + 1000, 'выручка не меняется');
+  const [f1, f2] = o.by_floor;
+  assert.equal(f1.discount, 1000);
+  assert.equal(f1.surcharge, 900);
+  assert.equal(f2.discount, 0);
+  const w = o.waiters.find((x) => x.name === 'Официант');
+  assert.equal(w.discount, 1000, 'скидки официанта без взаимозачёта');
+  assert.equal(w.surcharge, 900);
+  const text = reportText(o, null);
+  assert.match(text, /Всего: <b>1\s000\s₽<\/b>/);
+  assert.match(text, /Надбавки <i>\(в выручке, не скидки\)<\/i>: 900\s₽/);
+  assert.match(text, /Скидки: 1\s000\s₽ \(LoonaLevel2 1\s000\s₽ · 1 чек\)  ·  Надбавки: 900\s₽/);
+  // доля скидок и флаг 12% считаются от положительных скидок
+  // доля скидок и флаг 12% — от положительных скидок: 1000 / 8000 = 12,5% (по старой формуле было 100 ₽ = 1,3%, флага не было)
+  assert.ok(o.flags.some((x) => /^Скидки — 12,5%/.test(x.text)), JSON.stringify(o.flags));
+}
+
+// 2) Тяжёлый день: сообщение никогда не длиннее 4096, детали сжимаются
+function heavy(nFloors, nTypes, nPromo, nWo, nFlags) {
+  const types = Array.from({ length: nTypes }, (_, i) => ({ type: `Очень длинный тип скидки номер ${i} для гостей`, sum: 1000 + i, count: i + 1 }));
+  return {
+    day: '2026-11-26', depts: ['Смок Дог Москва'], partial: false,
+    totals: { revenue: 1234567, orders: 400, guests: 900, avg_check: 3086, avg_guest: 1371, discount: 50000, surcharge: 1200, discount_base: 1284567, deleted_sum: 30000 },
+    prev: { revenue: 1000000 }, profit: { cost: 500000, gross: 734567, has_expenses: false },
+    discount_by_type: types, surcharge_by_type: [{ type: 'Надбавка', sum: 1200, count: 3 }],
+    by_floor: Array.from({ length: nFloors }, (_, i) => ({ floor: String(i + 1), revenue: 100000 + i, orders: 100, guests: 200, avg_check: 1000, avg_guest: 500,
+      cost: 40000, gross_profit: 60000, discount: 10000, surcharge: 300, discount_by_type: types.slice(0, 6) })),
+    non_fiscal: Array.from({ length: nWo }, (_, i) => ({ type: `Списание ${i}`, category: i % 2 ? 'Учредительские столы' : 'Прочее', table: String(300 + i), count: 1, sum: 1000 + i })),
+    promo_items: Array.from({ length: nPromo }, (_, i) => ({ label: `Стол ${i} · ПромоБезОплаты с длинным названием`, sum: 500 + i, count: 1 })),
+    promo_total: 50000,
+    unprinted: { sum: 1000, count: 2 },
+    flags: Array.from({ length: nFlags }, (_, i) => ({ level: 'warn', text: 'Очень длинное предупреждение '.repeat(6) + i }))
+  };
+}
+function testLength() {
+  const link = 'https://svodka-tau.vercel.app/app/r/123456';
+  const normal = reportText(heavy(2, 4, 2, 2, 1), link);
+  assert.match(normal, /Чеков: 100  ·  Гостей: 200/, 'обычный день — этажи подробно');
+  for (const args of [[2, 30, 40, 40, 6], [3, 60, 120, 120, 10], [9, 200, 500, 500, 50]]) {
+    const o = heavy(...args);
+    const text = reportText(o, link, 'Совет дня: '.repeat(100));
+    assert.ok(text.length <= 4096, `длина ${text.length}`);
+    assert.ok(text.length <= 3900, `с запасом: ${text.length}`);
+    assert.match(text, /Итоги смены/);
+    assert.match(text, /Выручка: <b>1\s234\s567\s₽<\/b>/);
+    assert.match(text, /Полный отчёт в кабинете/);
+    assert.match(text, /<b>1 этаж<\/b>/, 'этажи остаются хотя бы одной строкой');
+    // HTML не порван: теги сбалансированы
+    for (const tag of ['b', 'i', 'pre', 'a']) assert.equal((text.match(new RegExp(`<${tag}[ >]`, 'g')) || []).length, (text.match(new RegExp(`</${tag}>`, 'g')) || []).length, tag);
+  }
+  const huge = reportText(heavy(3, 60, 120, 120, 10), link);
+  assert.match(huge, /<b>1 этаж<\/b>: /, 'при нехватке места этаж — одной строкой');
+}
+
+// 3) Чек с блюдами из двух залов — один этаж (где больше выручки); чеки этажей в сумме = итог
+async function testSplitReceipt() {
+  n = 800;
+  const atoms = [
+    sale(F1, 'Банковские карты', 3000, 0, '', { OrderNum: '900' }),
+    sale(F2, 'Банковские карты', 1000, 0, '', { OrderNum: '900' }),
+    sale(F2, 'Банковские карты', 2000, 0, '', { OrderNum: '901' })
+  ];
+  const o = await buildReport(fakeIiko(atoms), '2026-11-26', [{ id: '', name: 'Смок Дог Москва' }]);
+  assert.ok(!o.errors, String(o.errors));
+  assert.equal(o.totals.orders, 2);
+  const [f1, f2] = o.by_floor;
+  assert.equal(f1.orders, 1);
+  assert.equal(f2.orders, 1);
+  assert.equal(f1.revenue + f2.revenue, o.totals.revenue, 'выручка по строкам');
+  assert.equal(f1.guests + f2.guests, o.totals.guests);
+  // при равной выручке — меньший этаж
+  n = 810;
+  const tie = await buildReport(fakeIiko([sale(F2, 'Наличные', 1000, 0, '', { OrderNum: '950' }), sale(F1, 'Наличные', 1000, 0, '', { OrderNum: '950' })]), '2026-11-26', [{ id: '', name: 'Смок Дог Москва' }]);
+  assert.deepEqual(tie.by_floor.map((x) => [x.floor, x.orders]), [['1', 1], ['2', 0]]);
+}
+
+// 4) Себестоимость по тому же правилу, что продажи: зал без этажа + подразделение «… 2 этаж» → 2 этаж
+async function testCostByDept() {
+  n = 850;
+  const atoms = [
+    sale(F1, 'Наличные', 1000),
+    sale('Основной зал', 'Наличные', 2000, 0, '', { Department: 'Смок Дог 2 этаж' })
+  ];
+  const o = await buildReport(fakeIiko(atoms), '2026-11-26', null);
+  assert.ok(!o.errors, String(o.errors));
+  assert.deepEqual(o.by_floor.map((x) => [x.floor, x.revenue, x.cost]), [['1', 1000, 400], ['2', 2000, 800]]);
+  assert.ok(o.by_floor.every((x) => x.gross_profit >= 0), 'нет «Этаж не указан» с отрицательной прибылью');
+}
+
+// 5 + 8) Нет номера чека: запрос скидок без детализации (этаж только из discountGroups), чеки — из iiko по залам
+async function testNoReceiptFallback() {
+  n = 870;
+  const cols = COLS.filter((c) => c !== 'OrderNum');
+  const atoms = [
+    sale(F1, 'Банковские карты', 4000, 1000, 'LoonaLevel2'), sale(F1, 'Наличные', 1000), sale(F1, 'Наличные', 1000),
+    sale(F2, 'Банковские карты', 2000, 200, 'LoonaFixedSumDiscount'),
+    sale('Основной зал', 'Наличные', 500, 0, '', { Department: 'Смок Дог 2 этаж' })
+  ];
+  const o = await buildReport(fakeIiko(atoms, cols), '2026-11-26', [{ id: '', name: 'Смок Дог Москва' }]);
+  assert.ok(!o.errors, String(o.errors));
+  assert.equal(o.discount_details, undefined, 'детализации по чекам нет');
+  const [f1, f2] = o.by_floor;
+  assert.deepEqual([f1.revenue, f2.revenue], [5000, 2300], 'этаж по подразделению и без детализации');
+  assert.deepEqual([f1.discount, f2.discount], [1000, 200]);
+  assert.deepEqual([f1.orders, f2.orders], [3, 2], 'чеки из iiko, а не 0');
+  assert.equal(o.by_floor.length, 2, 'нет «Этаж не указан»');
+  assert.equal(f1.orders + f2.orders, o.totals.orders);
+  assert.equal(f1.guests + f2.guests, o.totals.guests);
+}
+
+// 7) Доли этажей в сумме ровно 100%
+function testShares() {
+  assert.deepEqual(shares([1, 1, 1]), [0.334, 0.333, 0.333]);
+  assert.equal(shares([413594, 74844]).reduce((s, x) => s + x, 0), 1);
+  assert.deepEqual(fitTo([3, 3, 3], 7), [3, 2, 2]);
+  const o = { day: '2026-11-26', totals: { revenue: 300, orders: 3, guests: 3 }, prev: {}, profit: {},
+    by_floor: ['1', '2', '3'].map((floor) => ({ floor, revenue: 100, orders: 1, guests: 1, avg_check: 100, avg_guest: 100, discount: 0 })) };
+  const text = reportText(o, null);
+  const got = [...text.matchAll(/· (\d+,\d)%/g)].map((m) => Number(m[1].replace(',', '.')));
+  assert.deepEqual(got, [33.4, 33.3, 33.3]);
+}
+
 (async () => {
   testFloorNames();
   testOldReport26();
   await testFloors();
   await testFallbackFromIiko();
+  await testSurcharge();
+  testLength();
+  await testSplitReceipt();
+  await testCostByDept();
+  await testNoReceiptFallback();
+  testShares();
   console.log('ok: floors tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

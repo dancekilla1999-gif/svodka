@@ -57,66 +57,105 @@ function tableRow(name, table, count, total) {
 
 // Блок «Списания / За счёт заведения»: таблица по типам оплаты (название, стол, чеков, сумма) с итогом.
 // Учредительские столы — отдельной группой с подытогом. В кассу, скидки и выручку эти суммы не входят.
-function writeOffLines(o) {
+function writeOffLines(o, max = Infinity) {
   const rows = o.non_fiscal || [];
   const L = ['<b>🧾 Списания / За счёт заведения</b>', '<i>Не в кассе, не в скидках, не в выручке</i>'];
   if (!rows.length) { L.push('Нет'); return L; }
   const founders = rows.filter((x) => x.category === FOUNDERS);
   const others = rows.filter((x) => x.category !== FOUNDERS);
   const count = (list) => list.reduce((s, x) => s + Number(x.count || 0), 0);
+  if (max <= 0) { L.push(`Итого: ${money(sum(rows))} · ${cheques(count(rows))} <i>(по типам — в кабинете)</i>`); return L; }
   const T = [tableRow('Тип оплаты', 'Стол', 'Чек', 'Сумма ₽')];
   const line = (x) => T.push(tableRow(x.type || '—', x.table || '—', x.count || '—', num0(x.sum)));
+  let left = max;
+  const some = (list) => {
+    const shown = list.slice(0, Math.max(0, left)); left -= shown.length;
+    shown.forEach(line);
+    const rest = list.slice(shown.length);
+    if (rest.length) T.push(tableRow(`Ещё ${rest.length}`, '', count(rest), num0(sum(rest))));
+  };
   if (founders.length) {
     T.push('— Учредительские столы —');
-    founders.forEach(line);
+    some(founders);
     T.push(tableRow('Итого учредит.', '', count(founders), num0(sum(founders))));
   }
   if (others.length) {
     if (founders.length) T.push('— Прочие за счёт заведения —');
-    others.forEach(line);
+    some(others);
   }
   T.push(tableRow('ИТОГО', '', count(rows), num0(sum(rows))));
   L.push(`<pre>${esc(T.join('\n'))}</pre>`);
   return L;
 }
 
-// Блок «По этажам»: 1 и 2 этаж отдельно (выручка, чеки, гости, средний чек, себестоимость, валовая прибыль, скидки).
+// Блок «По этажам»: каждый этаж отдельно (выручка, чеки, гости, средний чек, себестоимость, валовая прибыль, скидки).
 // Этажи в сумме дают общий итог выше. Старые отчёты без by_floor — только выручка по этажам из revenue_breakdown.
+// compact: одна строка на этаж (когда сообщение не помещается в лимит Telegram).
 function floorName(floor) { return floor === 'unknown' ? 'Этаж не указан' : `${floor} этаж`; }
-function floorLines(o) {
-  const t = o.totals || {};
+function floorSort(a, b) { return a === 'unknown' ? 1 : b === 'unknown' ? -1 : Number(a) - Number(b); }
+// доли с одним знаком после запятой, в сумме ровно 100,0% (наибольший остаток)
+function shareList(values) {
+  const total = values.reduce((s, v) => s + Math.max(0, v), 0);
+  if (!total) return values.map(() => null);
+  const raw = values.map((v) => Math.max(0, v) * 1000 / total);
+  const out = raw.map(Math.floor);
+  let rest = 1000 - out.reduce((s, v) => s + v, 0);
+  raw.map((v, i) => [v - Math.floor(v), i]).sort((x, y) => y[0] - x[0] || x[1] - y[1]).forEach(([, i]) => { if (rest > 0) { out[i] += 1; rest -= 1; } });
+  return out.map((x) => x / 10);
+}
+function shareText(x) { return x == null ? '' : ` · ${(x).toFixed(1).replace('.', ',')}%`; }
+function typeList(list, max, maxLen = 30) {
+  return (list || []).slice(0, max).map((d) => `${label(d.type, maxLen)} ${money(d.sum)}${d.count ? ` · ${cheques(d.count)}` : ''}`);
+}
+function floorLines(o, opt = {}) {
   if (o.by_floor && o.by_floor.length) {
+    const sh = shareList(o.by_floor.map((x) => Number(x.revenue) || 0));
     const L = ['', '<b>🏢 По этажам</b>'];
-    for (const x of o.by_floor) {
-      L.push('', `<b>${floorName(x.floor)}</b> — выручка <b>${money(x.revenue)}</b>${percent(x.revenue, t.revenue)}`);
+    o.by_floor.forEach((x, i) => {
+      const disc = x.discount == null ? 'данные недоступны' : x.discount ? money(x.discount) : 'нет';
+      const sur = x.surcharge > 0 ? `  ·  Надбавки: ${money(x.surcharge)}` : '';
+      if (opt.compact) {
+        const gp = x.gross_profit != null ? ` · ВП ${money(x.gross_profit)}` : '';
+        L.push(`<b>${floorName(x.floor)}</b>: ${money(x.revenue)}${shareText(sh[i])} · ${cheques(x.orders)} · ср. ${money(x.avg_check)}${gp} · скидки ${disc}`);
+        return;
+      }
+      L.push('', `<b>${floorName(x.floor)}</b> — выручка <b>${money(x.revenue)}</b>${shareText(sh[i])}`);
       L.push(`Чеков: ${x.orders}  ·  Гостей: ${x.guests}`);
       L.push(`Средний чек: ${money(x.avg_check)}  ·  На гостя: ${money(x.avg_guest)}`);
       if (x.cost != null) L.push(`Себестоимость: ${money(x.cost)}${percent(x.cost, x.revenue)}  ·  Валовая прибыль: ${money(x.gross_profit)}`);
-      if (x.discount == null) L.push('Скидки: данные недоступны');
-      else if (!x.discount) L.push('Скидки: нет');
-      else {
-        const types = (x.discount_by_type || []).slice(0, 4).map((d) => `${label(d.type, 30)} ${money(d.sum)}${d.count ? ` · ${cheques(d.count)}` : ''}`);
-        L.push(`Скидки: ${money(x.discount)}${types.length ? ` (${types.join('; ')})` : ''}`);
-      }
-    }
+      const types = x.discount ? typeList(x.discount_by_type, opt.floorTypes ?? 4) : [];
+      L.push(`Скидки: ${disc}${types.length ? ` (${types.join('; ')})` : ''}${sur}`);
+    });
     return L;
   }
   const rb = o.revenue_breakdown || [];
-  const floors = ['1', '2', 'unknown'].map((floor) => ({ floor, sum: sum(rb.filter((x) => x.floor === floor)) }))
-    .filter((x) => x.floor !== 'unknown' || x.sum);
-  if (!rb.some((x) => x.floor === '1' || x.floor === '2')) return [];
-  return ['', '<b>🏢 Выручка по этажам</b>', ...floors.map((x) => `• ${floorName(x.floor)}: ${money(x.sum)}${percent(x.sum, t.revenue)}`)];
+  if (!rb.some((x) => x.floor && x.floor !== 'unknown')) return [];
+  const keys = [...new Set(['1', '2', ...rb.map((x) => x.floor)])].sort(floorSort);
+  const floors = keys.map((floor) => ({ floor, sum: sum(rb.filter((x) => x.floor === floor)) }))
+    .filter((x) => x.floor === '1' || x.floor === '2' || x.sum);
+  const sh = shareList(floors.map((x) => x.sum));
+  return ['', '<b>🏢 Выручка по этажам</b>', ...floors.map((x, i) => `• ${floorName(x.floor)}: ${money(x.sum)}${shareText(sh[i])}`)];
 }
 
-function reportText(o, link, extra = '') {
+// Ступени сжатия: Telegram не принимает сообщения длиннее 4096 символов (дайджест тогда молча не уходил).
+const TG_LIMIT = 4096, SOFT_LIMIT = 3900;
+const LEVELS = [
+  { types: 8, floorTypes: 4, promo: 50, writeOffs: 50, flags: 4 },
+  { types: 5, floorTypes: 2, promo: 8, writeOffs: 12, flags: 4 },
+  { types: 5, compact: true, promo: 5, writeOffs: 8, flags: 3 },
+  { types: 3, compact: true, promo: 3, writeOffs: 5, flags: 2 },
+  { types: 0, compact: true, promo: 0, writeOffs: 0, flags: 1 }
+];
+
+function mainLines(o, opt) {
   const t = o.totals || {}, p = o.prev || {}, m = o.profit || {};
   const L = [`<b>📊 Итоги смены · ${esc(dayRu(o.day))}</b>${o.demo ? ' · <i>демо</i>' : ''}`];
   if (o.depts?.length) L.push(label(o.depts.join(', '), 150));
   if (o.partial) L.push('<i>Смена ещё идёт — цифры на текущий момент</i>');
 
-  const hasFloors = floorLines(o).length > 0;
+  const floors = floorLines(o, opt);
   L.push('');
-  if (hasFloors) L.push('<b>Всего по заведению</b>');
+  if (floors.length) L.push('<b>Всего по заведению</b>');
   L.push(`Выручка: <b>${money(t.revenue)}</b>${p.revenue ? delta(t.revenue, p.revenue) : ''}`);
   const guestNote = t.guests_include_non_fiscal ? ' <i>(включая нефискальные)</i>' : '';
   L.push(`Чеков: ${t.orders}  ·  Гостей: ${t.guests}${guestNote}`);
@@ -130,20 +169,24 @@ function reportText(o, link, extra = '') {
     L.push('<i>Чистая прибыль: внесите расходы в кабинете</i>');
   }
 
-  L.push(...floorLines(o));
+  L.push(...floors);
 
   const base = t.discount_base ?? t.gross;
   L.push('', '<b>🏷 Скидки</b> <i>(только фискальные чеки)</i>');
   L.push(t.discount == null ? 'Данные недоступны' : `Всего: <b>${money(t.discount)}</b>${percent(t.discount, base)}${percent(t.discount, base) ? ' от суммы до скидок' : ''}`);
   const types = discountTypes(o);
-  types.slice(0, 8).forEach((x) => {
+  types.slice(0, opt.types).forEach((x) => {
     const n = x.count ? ` · ${cheques(x.count)}` : '';
     L.push(`• ${label(x.type, 40)}: ${money(x.sum)}${n}`);
   });
-  if (types.length > 8) L.push(`• Остальные типы: ${money(sum(types.slice(8)))}`);
+  if (types.length > opt.types) L.push(`• ${opt.types ? 'Остальные типы' : 'По типам — в кабинете'}: ${money(sum(types.slice(opt.types)))}`);
   else if (!types.length && t.discount > 0) L.push('iiko не вернул разбивку по типам скидок');
+  if (t.surcharge > 0) {
+    const st = typeList(o.surcharge_by_type, Math.min(3, opt.types), 40);
+    L.push(`Надбавки <i>(в выручке, не скидки)</i>: ${money(t.surcharge)}${st.length ? ` (${st.join('; ')})` : ''}`);
+  }
 
-  L.push('', ...writeOffLines(o));
+  L.push('', ...writeOffLines(o, opt.writeOffs));
 
   if (o.unprinted && (o.unprinted.sum || o.unprinted.count)) {
     const n = o.unprinted.count || 0;
@@ -158,21 +201,39 @@ function reportText(o, link, extra = '') {
   if (promoRows.length || o.promo_total) {
     const promoSum = o.promo_total != null ? o.promo_total : sum(promoRows);
     L.push('', `Промо без оплаты <i>(в выручке)</i>: <b>${money(promoSum)}</b>`);
-    promoRows.forEach((x) => {
+    promoRows.slice(0, opt.promo).forEach((x) => {
       const n = x.count ? ` · ${x.count}` : '';
       L.push(`• ${label(x.label || x.type, 60)}: ${money(x.sum)}${n}`);
     });
+    if (promoRows.length > opt.promo) L.push(`• Ещё ${promoRows.length - opt.promo} — в кабинете: ${money(sum(promoRows.slice(opt.promo)))}`);
   }
 
   L.push('', `Удаления: ${money(t.deleted_sum)}${percent(t.deleted_sum, t.revenue)}`);
   const flags = (o.flags || []).filter((f) => !/^Скидки —/.test(f.text));
   if ((o.flags || []).some((f) => /^Скидки —/.test(f.text))) L.push('🟡 Доля скидок выше порога — подробности в кабинете');
-  flags.slice(0, 4).forEach((f) => L.push(`${f.level === 'bad' ? '🔴' : '🟡'} ${label(f.text, 200)}`));
+  flags.slice(0, opt.flags).forEach((f) => L.push(`${f.level === 'bad' ? '🔴' : '🟡'} ${label(f.text, 200)}`));
   if (!(o.flags || []).length) L.push('✅ Отклонений не найдено');
+  return L;
+}
 
+// Сообщение всегда не длиннее 4096: сначала сокращаем детали (типы скидок, этажи до одной строки, промо, списания),
+// в крайнем случае отрезаем хвост целыми блоками (HTML-теги не рвутся) и пишем, что полный отчёт в кабинете.
+function reportText(o, link, extra = '') {
   const footer = link ? `<a href="${esc(link)}">📋 Полный отчёт в кабинете →</a>` : '';
-  const main = L.join('\n');
-  return [main, extra && main.length + extra.length + footer.length < 3900 ? extra : '', footer].filter(Boolean).join('\n\n');
+  const room = SOFT_LIMIT - footer.length - (footer ? 2 : 0);
+  let L = null;
+  for (const opt of LEVELS) {
+    L = mainLines(o, opt);
+    if (L.join('\n').length <= room) break;
+  }
+  let main = L.join('\n');
+  if (main.length > room) {
+    const cut = '<i>… сообщение сокращено, полный отчёт — в кабинете</i>';
+    while (L.length > 1 && L.join('\n').length + cut.length + 1 > room) L.pop();
+    main = [...L, cut].join('\n');
+  }
+  const text = [main, extra && main.length + extra.length + footer.length + 4 <= SOFT_LIMIT ? extra : '', footer].filter(Boolean).join('\n\n');
+  return text.length <= TG_LIMIT ? text : text.slice(0, TG_LIMIT);
 }
 
 // Реестр по чекам больше не уходит в Telegram (только кабинет). Функция оставлена

@@ -145,11 +145,24 @@ function classification(type, payment, fiscal, rules) {
   return 'regular';
 }
 
+// Этаж по названию зала (RestaurantSection) или подразделения: «Зал 1 этаж», «2-й этаж», «2 эт.», «Этаж №2», «Этаж-2»,
+// «на втором этаже», «Первый этаж». Не этаж: «Зал 12» (нет слова «этаж»), «12 этаж» / «Этаж 21» (только этажи 1–9),
+// «-1 этаж» (цоколь) и «1–2 этаж» (диапазон) — такие залы уходят в «Этаж не указан».
+const FLOOR_WORDS = [[/^перв/, '1'], [/^втор/, '2'], [/^трет/, '3'], [/^четв[её]рт/, '4'], [/^пят/, '5']];
+const FLOOR_WORD = '(?:этаж(?:а|е|ом|у|и|ей)?|эт\\.?)(?![а-я])';
+const FLOOR_BEFORE = new RegExp(`(^|[^0-9\\-–—.,/])([1-9])(?![0-9]|\\s*[\\-–—]\\s*[0-9])\\s*(?:-?\\s*(?:й|ый|ой|ий|м|го|ом)(?![а-я]))?\\s*${FLOOR_WORD}`);
+const FLOOR_AFTER = new RegExp(`(?:^|[^а-я])этаж(?:а|е|ом|у|и|ей)?(?:\\s*(?:№|no\\.?|#|:)\\s*|-|\\s*)([1-9])(?![0-9]|\\s*[\\-–—]\\s*[0-9])`);
+const FLOOR_TEXT = new RegExp(`(?:^|[^а-я])([а-я]+)\\s+${FLOOR_WORD}`);
 function floorOf(...names) {
   for (const name of names) {
-    const label = String(name ?? '').toLowerCase();
-    const floor = label.match(/(?:^|[^0-9])([12])\s*(?:[-–]?\s*(?:й|ый|ой)\s*)?этаж|этаж\s*([12])(?!\d)/);
-    if (floor) return floor[1] || floor[2];
+    const label = String(name ?? '').normalize('NFKC').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
+    if (!label.trim()) continue;
+    const before = label.match(FLOOR_BEFORE);
+    if (before && !/[\-–—]\s*$/.test(label.slice(0, before.index + before[1].length))) return before[2];
+    const after = label.match(FLOOR_AFTER);
+    if (after) return after[1];
+    const text = label.match(FLOOR_TEXT);
+    if (text) for (const [re, floor] of FLOOR_WORDS) if (re.test(text[1])) return floor;
   }
   return 'unknown';
 }
