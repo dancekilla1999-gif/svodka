@@ -80,13 +80,44 @@ function writeOffLines(o) {
   return L;
 }
 
+// Блок «По этажам»: 1 и 2 этаж отдельно (выручка, чеки, гости, средний чек, себестоимость, валовая прибыль, скидки).
+// Этажи в сумме дают общий итог выше. Старые отчёты без by_floor — только выручка по этажам из revenue_breakdown.
+function floorName(floor) { return floor === 'unknown' ? 'Этаж не указан' : `${floor} этаж`; }
+function floorLines(o) {
+  const t = o.totals || {};
+  if (o.by_floor && o.by_floor.length) {
+    const L = ['', '<b>🏢 По этажам</b>'];
+    for (const x of o.by_floor) {
+      L.push('', `<b>${floorName(x.floor)}</b> — выручка <b>${money(x.revenue)}</b>${percent(x.revenue, t.revenue)}`);
+      L.push(`Чеков: ${x.orders}  ·  Гостей: ${x.guests}`);
+      L.push(`Средний чек: ${money(x.avg_check)}  ·  На гостя: ${money(x.avg_guest)}`);
+      if (x.cost != null) L.push(`Себестоимость: ${money(x.cost)}${percent(x.cost, x.revenue)}  ·  Валовая прибыль: ${money(x.gross_profit)}`);
+      if (x.discount == null) L.push('Скидки: данные недоступны');
+      else if (!x.discount) L.push('Скидки: нет');
+      else {
+        const types = (x.discount_by_type || []).slice(0, 4).map((d) => `${label(d.type, 30)} ${money(d.sum)}${d.count ? ` · ${cheques(d.count)}` : ''}`);
+        L.push(`Скидки: ${money(x.discount)}${types.length ? ` (${types.join('; ')})` : ''}`);
+      }
+    }
+    return L;
+  }
+  const rb = o.revenue_breakdown || [];
+  const floors = ['1', '2', 'unknown'].map((floor) => ({ floor, sum: sum(rb.filter((x) => x.floor === floor)) }))
+    .filter((x) => x.floor !== 'unknown' || x.sum);
+  if (!rb.some((x) => x.floor === '1' || x.floor === '2')) return [];
+  return ['', '<b>🏢 Выручка по этажам</b>', ...floors.map((x) => `• ${floorName(x.floor)}: ${money(x.sum)}${percent(x.sum, t.revenue)}`)];
+}
+
 function reportText(o, link, extra = '') {
   const t = o.totals || {}, p = o.prev || {}, m = o.profit || {};
   const L = [`<b>📊 Итоги смены · ${esc(dayRu(o.day))}</b>${o.demo ? ' · <i>демо</i>' : ''}`];
   if (o.depts?.length) L.push(label(o.depts.join(', '), 150));
   if (o.partial) L.push('<i>Смена ещё идёт — цифры на текущий момент</i>');
 
-  L.push('', `Выручка: <b>${money(t.revenue)}</b>${p.revenue ? delta(t.revenue, p.revenue) : ''}`);
+  const hasFloors = floorLines(o).length > 0;
+  L.push('');
+  if (hasFloors) L.push('<b>Всего по заведению</b>');
+  L.push(`Выручка: <b>${money(t.revenue)}</b>${p.revenue ? delta(t.revenue, p.revenue) : ''}`);
   const guestNote = t.guests_include_non_fiscal ? ' <i>(включая нефискальные)</i>' : '';
   L.push(`Чеков: ${t.orders}  ·  Гостей: ${t.guests}${guestNote}`);
   L.push(`Средний чек: ${money(t.avg_check)}  ·  На гостя: ${money(t.avg_guest)}${guestNote}`);
@@ -98,6 +129,8 @@ function reportText(o, link, extra = '') {
     L.push(`Валовая прибыль: <b>${money(m.gross)}</b>`);
     L.push('<i>Чистая прибыль: внесите расходы в кабинете</i>');
   }
+
+  L.push(...floorLines(o));
 
   const base = t.discount_base ?? t.gross;
   L.push('', '<b>🏷 Скидки</b> <i>(только фискальные чеки)</i>');
